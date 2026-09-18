@@ -159,7 +159,39 @@ def dedupe_quotes(conn):
     conn.commit()
     return dup_same, conflicts
 
+def _create_tables(conn):
+    """cpumem.db 不存在时自动建表"""
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS products (
+        product_key   TEXT PRIMARY KEY,
+        display_name  TEXT NOT NULL,
+        category      TEXT NOT NULL,
+        vendor        TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS dates (
+        date_key   TEXT PRIMARY KEY,
+        year INTEGER, month INTEGER, day INTEGER, weekday INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS quotes (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_key   TEXT NOT NULL REFERENCES products(product_key),
+        date_key      TEXT NOT NULL REFERENCES dates(date_key),
+        price         REAL NOT NULL,
+        price_type    TEXT DEFAULT '默认',
+        source_image  TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_q_prod_date ON quotes(product_key, date_key);
+    CREATE INDEX IF NOT EXISTS idx_p_cat_vendor ON products(category, vendor);
+    """)
+    conn.commit()
+
+
 def load_db():
+    if not os.path.exists(DB_PATH):
+        conn = sqlite3.connect(DB_PATH)
+        _create_tables(conn)
+        print("cpumem.db 不存在，已自动创建表结构")
+        return conn
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -231,7 +263,8 @@ def process_file(conn, json_path: str) -> tuple[int, int]:
 
 def main():
     if not os.path.exists(DB_PATH):
-        print("错误: 未找到 cpumem.db，请先运行 build_db.py")
+        print("错误: 未找到 cpumem.db（会自动创建表结构）")
+        _create_tables(conn) if False else None
         return
     force = "--force-conflicts" in __import__("sys").argv
     files = sorted(glob.glob(os.path.join(EXTRACT_DIR, "*.json")))

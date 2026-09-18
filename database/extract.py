@@ -5,9 +5,9 @@
 配置：编辑 llm_config.json，填入 base_url / api_key / model（OpenAI 兼容格式）。
 
 用法：
-    python extract.py                # 模拟模式（不调 LLM，生成模拟数据验证链路）
-    python extract.py --real         # 真实模式（调用 llm_config.json 配置的 LLM）
-    python extract.py --real --file 图片文件名   # 只提取指定图片（单张测试）
+    python extract.py                # 批量提取（调用 llm_config.json 配置的 LLM，10并发，断点续跑）
+    python extract.py --file 图片文件名   # 只提取指定图片（单张测试）
+    python extract.py --status       # 查看提取进度
 
 输出：
     extracted/<图片名>.json          # 每张图一份原始提取结果
@@ -27,92 +27,28 @@ OUT_DIR = os.path.join(BASE_DIR, "extracted")
 CONFIG_PATH = os.path.join(BASE_DIR, "llm_config.json")
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# ============ 提取提示词（决定数据质量的核心） ============
-# 公共基础规则（所有分类通用）
-BASE_PROMPT = """你是硬件报价单数据提取助手。请仔细阅读这张报价单图片，把其中的产品价格信息提取为 JSON。
+# ============ 提取提示词（从本地 prompts/ 目录加载，可运行时修改） ============
+PROMPTS_DIR = os.path.join(BASE_DIR, "prompts")
 
-要求：
-1. 输出一个 JSON 对象，格式如下：
-{
-  "sheet_date": "YYYY-MM-DD",
-  "products": [
-    {
-      "category": "大类",
-      "vendor": "品牌",
-      "product_name": "型号名",
-      "price_type": "价格类型",
-      "price": 613
-    }
-  ]
-}
-字段说明：
-- sheet_date: 从图片标题提取报价日期。图片中只包含月份和日期，年份固定为 2026 年，直接输出 "2026-MM-DD"
-- vendor: 品牌，如 Intel / AMD / 金士顿 / 三星 / 罗技（以表头区块标题为准）
-- product_name: 型号名。容量/规格必须完整拼入型号名（如 "TF卡 SDCS3 16G"、"990 PRO 1TB"），不能只写系列名；同一系列不同容量的产品必须各自一条记录
-- price_type: 价格类型
-- price: 纯数字价格。如果价格含星号(*)、字母X、或无法辨认（如"****"、"****/853"），该价格视为无效：
-  * 整行价格都无效 -> 不要输出该条记录
-  * 只有一个价格无效（如"****/853"中的第一个） -> 只输出有效的那个价格（如 原盒 853）
-  * 区间价（如"695--1320"）取中间值或只取能确认的那个数
 
-2. 严格按图片内容提取，不要推断、不要编造；看不清的记录直接跳过。
-3. 价格不明确的记录（含星号、X、空）直接剔除，不要编造价格；只有价格明确的产品才输出。
-   【严禁跨行复制价格】每行的价格只能来自本行。如果某行的价格栏是空白（如缺货/未报价），该行直接跳过，绝对不能把相邻行的价格复制给它。例：图中 "Ryzen-9 9950X 3D 2" 行价格栏为空白，则不要为它输出任何记录。
-4. 只输出 JSON，不要其他文字。每个产品只输出 category/vendor/product_name/price_type/price 五个字段，不要输出 spec/price_raw/note 等其他字段。
-"""
-
-# 分类专用规则：按图片所在文件夹自动附加
-CATEGORY_PROMPTS = {
-    "CPU": """
-本图是 CPU 报价单，专用规则：
-- category 统一为 "CPU"
-【拆行总则 —— 先判断行结构，再拆分】
-拆分前必须先数清楚：这一行有 N 个型号、M 个价格。然后按以下规则对应：
-- 情况A：1个型号 + 2个价格（如 "U5 230F  12/238"）→ 按散片/原盒拆两条（散片12、原盒238）
-- 情况B：N个型号 + N个价格（如 "i3 6100-I5 6500-I7 6700  12/85/238"，或 "U5 230F-245KF-245K  12/85/238"）→ 按型号拆，每个型号一个价（230F=12、245KF=85、245K=238），price_type 根据该区域的列头判断（散片区则为散片）
-- 情况C：2个型号 + 3个价格（如 "U5 250K PLUS-U7 270K PLUS  330/383/389"）→ 说明散片/原盒与多型号交织，需结合表格列头判断：可能是"型号1散片/型号1原盒/型号2散片"或"型号1散片/型号2散片/型号2原盒"，按列头位置严格对应
-- 【逐行对齐校验 —— 防止价格串行】提取多型号交织区域时，必须逐行校验：
-  * 每个价格必须能说出它对应的型号名和位置（第几个价格、哪一列），说不出来就跳过
-  * 同一型号不能出现在多条记录里且价格不同（如 "U9 285K 散片 89" 和 "U9 285K 散片 1255" 同时出现 = 对齐错误，说明价格串行了）
-  * 价格从上到下逐行对应，上一行的价格绝对不能给到下一行的型号
-  * 价格的量级要合理：i3 散片应几百元、i9 散片上千元、U系 CPU 不可能 10~90 元（10~90 是隔壁内存条/表带价格）
-  * 如果某区域价格对不上号（如型号数量与价格数量不符、价格量级明显错误），宁可跳过该行，也不要猜测分配
-- 【行结构识别】型号边界识别：U5/U7/U9、i3/i5/i7/i9、Ryzen、G 开头（奔腾）是新型号的标志；型号名里的"-"连接的是同一型号的规格（如 i5-13400F），不是型号分隔符；只有当"-"两边都是独立型号名（如 230F-245KF）才是多型号行
-- 关键：型号名里含"-"不一定是多型号（如 "i5 13400F" 是型号本身），要先识别型号的完整边界（U5/U7/U9、i3/i5/i7/i9、Ryzen 开头为新型号的标志）
-- 对应关系不确定时，直接跳过该行，不要随意猜测分配价格
-- 型号名保留完整规格（如 "i5 13400 10核16线程 2.5/4.6"），不要省略
-- 同一个型号在不同区块出现（如散片栏和原盒栏）时，分别提取为多条记录
-""",
-    "mem": """
-本图是 内存 价格单，专用规则：
-- category 统一为 "内存"
-- 规格（容量/频率/时序/颗粒/马甲）必须完整拼入型号名，如 "FURY 16G 6000 C30 马甲"、"银爵 8G/3200 银三星"，不能只写系列名
-- 价格如 "1800单条 3600套价" 是单条价+套装价，拆成两条记录：price_type 分别为 "单条" 和 "套装"
-- 区分 DDR3/DDR4/DDR5（从型号名中识别，拼入型号名或 spec）
-- 台式机/笔记本内存（如 "8G/1600 台式/NB笔记本"）区分清楚，同一行两个价格时拆成两条记录并注明用途
-""",
-    "TF": """
-本图以 TF卡/存储卡 价格为主，专用规则：
-- TF卡/SD卡/存储卡/内存卡类产品的 category 统一为 "TF卡"，容量必须完整拼入型号名（如 "TF卡 SDCS3 16G"、"TF卡 SDCG4 128G"），同一系列不同容量各自一条记录，TF版和SD版分开
-- 注意：图中如果还包含其他区块（如固态硬盘、机械硬盘、U盘等），也必须一并完整提取，按实际内容标注 category（固态硬盘 / 机械硬盘 / TF卡 等），不要遗漏
-- 品牌、价格、备注等其他字段遵循通用规则
-""",
-    "其他": """
-本图是混合类报价单，专用规则：
-- category 根据图片内容判断，只能是：主板 / 显卡 / 电源 / 显示器 / 固态硬盘 / 机械硬盘 / 外设
-- 主板（如 微星 H410M A PRO）、显卡（如 影驰 RTX 5070）、电源（航嘉）、显示器（航嘉/微星）各自单独分类，不要归入"外设"
-- 外设仅指鼠标/键盘/摄像头/耳麦等输入输出设备
-- 固态硬盘/机械硬盘按原有规则提取
-- 产品型号保留完整（如 "RTX 5070 12G 魔刃 OC"），显存容量拼入型号名
-""",
-}
+def load_prompt(fname: str, default: str = "") -> str:
+    """从 prompts/ 目录加载提示词文件；文件不存在时返回 default"""
+    path = os.path.join(PROMPTS_DIR, fname)
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    return default
 
 
 def build_prompt(img_path: str) -> str:
-    """按图片所在文件夹选择分类专用规则，并附加 CPU 白名单过滤规则"""
+    """组装提示词：基础规则(prompts/base.txt) + 分类专用规则(prompts/<分类>.txt) + CPU白名单(cpu_watchlist.json)。
+    分类专用文件名 = 图片所在文件夹名；找不到时回退到 base。"""
     parent = os.path.basename(os.path.dirname(img_path))
-    category_rule = CATEGORY_PROMPTS.get(parent, CATEGORY_PROMPTS["其他"])
-    prompt = BASE_PROMPT + category_rule
+    base = load_prompt("base.txt")
+    category_rule = load_prompt(f"{parent}.txt")
+    prompt = base
+    if category_rule and category_rule != base:
+        prompt += "\n" + category_rule
 
     # CPU 白名单：只在提取 CPU 类目时限制型号范围
     wl_path = os.path.join(BASE_DIR, "cpu_watchlist.json")
@@ -127,10 +63,6 @@ def build_prompt(img_path: str) -> str:
                     wl_text += "Intel 型号（第10代及以后）：" + "、".join(intel) + "\n"
                 if amd:
                     wl_text += f"AMD 型号：{amd}\n"
-                if intel:
-                    wl_text += "Intel 型号（第10代及以后）：" + "、".join(intel) + "\n"
-                if amd:
-                    wl_text += f"AMD 型号：{amd}\n"
                 wl_text += """【白名单匹配规则】（用于处理图片中不规范的型号书写方式）：
 1. 一行含多个型号（用 / 或 - 分隔，如 "i7 10700F/10700"、"i3 4160/4170"）：逐个拆开判断，只要其中任一型号在白名单内，就提取该行对应型号的价格（只输出白名单内的型号）
 2. 前缀变体等价："US" = "U5"、"I5" = "i5"、大小写不敏感，视为同一型号
@@ -141,24 +73,6 @@ def build_prompt(img_path: str) -> str:
         except Exception:
             pass  # 白名单文件损坏时忽略，全量提取
     return prompt
-
-
-def mock_extract(img_path: str) -> dict:
-    """模拟模式：生成与真实输出同构的 JSON，用于验证清洗入库链路。"""
-    name = os.path.basename(img_path)
-    return {
-        "sheet_date": "2026-09-16",
-        "products": [
-            {"category": "CPU", "vendor": "Intel", "product_name": "i5-12400F",
-             "spec": "", "price_type": "散片", "price": 613, "price_raw": "613", "note": ""},
-            {"category": "CPU", "vendor": "Intel", "product_name": "i5-12400F",
-             "spec": "", "price_type": "原盒", "price": 720, "price_raw": "720", "note": ""},
-            {"category": "固态硬盘", "vendor": "金士顿", "product_name": "NV3-1TB",
-             "spec": "NVMe", "price_type": "默认", "price": 533, "price_raw": "533", "note": ""},
-        ],
-        "_mock": True,
-        "_source": name,
-    }
 
 
 def load_config() -> dict:
@@ -233,7 +147,7 @@ def real_extract(img_path: str) -> dict:
 MAX_WORKERS = 10   # 并发数：同时向 LLM 发起的请求数（限流失败多则降回 5）
 
 
-def extract_one(img_path: str, extract_fn) -> tuple[str, bool, str]:
+def extract_one(img_path: str) -> tuple[str, bool, str]:
     """提取单张图片，返回 (图片名, 成功, 消息)。线程安全：每张图独立落盘。"""
     name = os.path.splitext(os.path.basename(img_path))[0]
     out_path = os.path.join(OUT_DIR, name + ".json")
@@ -241,7 +155,7 @@ def extract_one(img_path: str, extract_fn) -> tuple[str, bool, str]:
         return (name, True, "跳过（已存在）")
     try:
         t0 = time.time()
-        data = extract_fn(img_path)
+        data = real_extract(img_path)
         data["_source_image"] = os.path.basename(img_path)
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -252,9 +166,6 @@ def extract_one(img_path: str, extract_fn) -> tuple[str, bool, str]:
 
 
 def main():
-    real = "--real" in sys.argv
-    extract_fn = real_extract if real else mock_extract
-
     # --file 指定单张图片（测试用，可以是文件名或相对 价格图片/ 的路径）
     if "--file" in sys.argv:
         target = sys.argv[sys.argv.index("--file") + 1]
@@ -275,7 +186,7 @@ def main():
             images.extend(glob.glob(os.path.join(IMG_DIR, "**", e), recursive=True))
         images.sort()
 
-    print(f"共 {len(images)} 张图片，模式: {'真实(LLM)' if real else '模拟'}，并发数: {MAX_WORKERS if real else 1}")
+    print(f"共 {len(images)} 张图片，并发数: {MAX_WORKERS}")
     done = sum(1 for img in images if os.path.exists(os.path.join(OUT_DIR, os.path.splitext(os.path.basename(img))[0] + ".json")))
     print(f"断点续跑: 已完成 {done} 张，待提取 {len(images) - done} 张")
 
@@ -298,15 +209,10 @@ def main():
                 failed_list.append(name)
             print(f"[{idx}/{len(images)}] {name[:16]}...: {msg}", flush=True)
 
-    if real:
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            futures = {pool.submit(extract_one, img, extract_fn): img for img in images}
-            for fut in as_completed(futures):
-                name, success, msg = fut.result()
-                report(name, success, msg)
-    else:
-        for i, img in enumerate(images, 1):
-            name, success, msg = extract_one(img, extract_fn)
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        futures = {pool.submit(extract_one, img): img for img in images}
+        for fut in as_completed(futures):
+            name, success, msg = fut.result()
             report(name, success, msg)
 
     print(f"\n提取完成: 新提取 {ok}, 跳过 {skipped}, 失败 {fail}，结果存于 {OUT_DIR}")
@@ -319,7 +225,7 @@ def main():
     # 写入进度日志（断点续跑状态）
     total_done = sum(1 for img in images if os.path.exists(os.path.join(OUT_DIR, os.path.splitext(os.path.basename(img))[0] + ".json")))
     with open(os.path.join(BASE_DIR, "extract_progress.log"), "a", encoding="utf-8") as f:
-        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} real={real} 本次新提取={ok} 失败={fail} 总进度={total_done}/{len(images)}\n")
+        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 本次新提取={ok} 失败={fail} 总进度={total_done}/{len(images)}\n")
 
 
 def status():
