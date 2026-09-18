@@ -1,0 +1,12 @@
+{
+  "base_url": "http://10.0.0.21:8311/v1",
+  "api_key": "apikey-duhailong",
+  "model": "sensenova-6.8-flash-lite",
+  "temperature": 0,
+  "extra_body": {
+    "reasoning_effort": "none",
+    "thinking": {
+      "type": "disabled"
+    }
+  }
+}
