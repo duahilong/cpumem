@@ -1,0 +1,440 @@
+{
+  "sheet_date": "2026-02-04",
+  "products": [
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i3 10100",
+      "price_type": "散片",
+      "price": 475
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i3 10105",
+      "price_type": "散片",
+      "price": 503
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i3 10100F",
+      "price_type": "散片",
+      "price": 325
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i3 10105F",
+      "price_type": "散片",
+      "price": 335
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 10400F",
+      "price_type": "散片",
+      "price": 480
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 10400",
+      "price_type": "散片",
+      "price": 683
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 10500",
+      "price_type": "散片",
+      "price": 690
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 11400",
+      "price_type": "散片",
+      "price": 775
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "G6900",
+      "price_type": "散片",
+      "price": 420
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "G7400",
+      "price_type": "散片",
+      "price": 580
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "Intel 300",
+      "price_type": "散片",
+      "price": 480
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i3 12100F",
+      "price_type": "散片",
+      "price": 472
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i3 12100",
+      "price_type": "散片",
+      "price": 720
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i3 12300T",
+      "price_type": "散片",
+      "price": 628
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 12400F",
+      "price_type": "散片",
+      "price": 735
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 12400",
+      "price_type": "散片",
+      "price": 1045
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 12500",
+      "price_type": "散片",
+      "price": 1155
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 12600KF",
+      "price_type": "散片",
+      "price": 1050
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 12600KF",
+      "price_type": "原盒",
+      "price": 1135
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i7 12700KF",
+      "price_type": "散片",
+      "price": 1535
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i7 12700",
+      "price_type": "散片",
+      "price": 1740
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i9 12900KF",
+      "price_type": "散片",
+      "price": 1785
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i3 13100",
+      "price_type": "散片",
+      "price": 799
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 13400F",
+      "price_type": "散片",
+      "price": 855
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 13400F",
+      "price_type": "原盒",
+      "price": 950
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 13400",
+      "price_type": "散片",
+      "price": 1240
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 13490F",
+      "price_type": "原盒",
+      "price": 965
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 13600KF",
+      "price_type": "散片",
+      "price": 1113
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i7 13700F",
+      "price_type": "散片",
+      "price": 1490
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i7 13700KF",
+      "price_type": "散片",
+      "price": 1800
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i7 13700KF",
+      "price_type": "原盒",
+      "price": 1830
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "U5 230F",
+      "price_type": "原盒",
+      "price": 785
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "U5 245KF",
+      "price_type": "原盒",
+      "price": 1125
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "U7 265KF",
+      "price_type": "原盒",
+      "price": 1530
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "U7 265K",
+      "price_type": "原盒",
+      "price": 1760
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i3 14100F",
+      "price_type": "散片",
+      "price": 493
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i3 14100",
+      "price_type": "散片",
+      "price": 799
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 14400F",
+      "price_type": "散片",
+      "price": 927
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 14400F",
+      "price_type": "原盒",
+      "price": 999
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 14400",
+      "price_type": "散片",
+      "price": 1350
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 14490F",
+      "price_type": "原盒",
+      "price": 1005
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 14600KF",
+      "price_type": "散片",
+      "price": 1430
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 14600KF",
+      "price_type": "原盒",
+      "price": 1435
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i5 14600K",
+      "price_type": "散片",
+      "price": 1440
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i7 14700F",
+      "price_type": "散片",
+      "price": 1820
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i7 14700",
+      "price_type": "散片",
+      "price": 2478
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i7 14700KF",
+      "price_type": "散片",
+      "price": 1937
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i7 14700KF",
+      "price_type": "原盒",
+      "price": 2020
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i7 14700K",
+      "price_type": "散片",
+      "price": 2530
+    },
+    {
+      "category": "CPU",
+      "vendor": "Intel",
+      "product_name": "i9 14900KF",
+      "price_type": "散片",
+      "price": 2670
+    },
+    {
+      "category": "CPU",
+      "vendor": "AMD",
+      "product_name": "Ryzen-5 5600GT",
+      "price_type": "散片",
+      "price": 825
+    },
+    {
+      "category": "CPU",
+      "vendor": "AMD",
+      "product_name": "Ryzen-5 5600",
+      "price_type": "散片",
+      "price": 665
+    },
+    {
+      "category": "CPU",
+      "vendor": "AMD",
+      "product_name": "Ryzen-5 5600X",
+      "price_type": "散片",
+      "price": 770
+    },
+    {
+      "category": "CPU",
+      "vendor": "AMD",
+      "product_name": "Ryzen-7 5700X",
+      "price_type": "散片",
+      "price": 875
+    },
+    {
+      "category": "CPU",
+      "vendor": "AMD",
+      "product_name": "Ryzen-5 7500F",
+      "price_type": "散片",
+      "price": 775
+    },
+    {
+      "category": "CPU",
+      "vendor": "AMD",
+      "product_name": "Ryzen-5 7500F",
+      "price_type": "原盒",
+      "price": 795
+    },
+    {
+      "category": "CPU",
+      "vendor": "AMD",
+      "product_name": "Ryzen-7 7800X 3D",
+      "price_type": "散片",
+      "price": 1880
+    },
+    {
+      "category": "CPU",
+      "vendor": "AMD",
+      "product_name": "Ryzen-5 9600X",
+      "price_type": "散片",
+      "price": 1160
+    },
+    {
+      "category": "CPU",
+      "vendor": "AMD",
+      "product_name": "Ryzen-7 9700X",
+      "price_type": "散片",
+      "price": 1560
+    },
+    {
+      "category": "CPU",
+      "vendor": "AMD",
+      "product_name": "Ryzen-9 9900X",
+      "price_type": "散片",
+      "price": 2470
+    },
+    {
+      "category": "CPU",
+      "vendor": "AMD",
+      "product_name": "Ryzen-7 9800X 3D",
+      "price_type": "散片",
+      "price": 2730
+    },
+    {
+      "category": "CPU",
+      "vendor": "AMD",
+      "product_name": "Ryzen-9 9950X 3D",
+      "price_type": "散片",
+      "price": 4230
+    }
+  ],
+  "source_image": "014e5800a1c447a563d64da2f527a68b.png"
+}

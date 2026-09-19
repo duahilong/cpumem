@@ -201,7 +201,7 @@ def process_file(conn, json_path: str) -> tuple[int, int]:
     with open(json_path, encoding="utf-8") as f:
         data = json.load(f)
 
-    source_image = data.get("_source_image") or os.path.basename(json_path)
+    source_image = data.get("source_image") or data.get("_source_image") or os.path.basename(json_path)
     sheet_date = norm_date(data.get("sheet_date"))
     # 从文件名兜底补年份（如 '2026_09_16' 开头）
     m = re.search(r"(\d{4})[_-]?(\d{2})[_-]?(\d{2})", source_image)
@@ -242,7 +242,12 @@ def process_file(conn, json_path: str) -> tuple[int, int]:
         pkey = norm_product_key(name, vendor)
         row = cur.execute("SELECT 1 FROM products WHERE product_key=?", (pkey,)).fetchone()
         if not row:
-            display = f"{vendor} {name}".strip()
+            # 剥离 product_name 中的规格后缀和描述文字（LLM 偶发拼入）
+            clean_name = re.split(r"\d{1,2}核\d{0,3}线程", str(name).strip())[0]
+            clean_name = re.split(r"\d+\.\d+", clean_name)[0].strip()
+            clean_name = re.sub(r"（[^）]*奔腾[^）]*）.*$|\([^)]*奔腾[^)]*\).*$", "", clean_name).strip()
+            clean_name = clean_name or str(name).strip()
+            display = f"{vendor} {clean_name}".strip()
             cur.execute("INSERT INTO products VALUES (?,?,?,?)",
                         (pkey, display, category, vendor))
             n_prod += 1

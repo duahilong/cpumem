@@ -58,11 +58,13 @@ def build_prompt(img_path: str) -> str:
             if wl.get("enabled"):
                 intel = wl.get("Intel", [])
                 amd = wl.get("AMD", "")
+                # AMD 支持列表或字符串两种格式
+                amd_text = "、".join(amd) if isinstance(amd, list) else str(amd)
                 wl_text = "\n【CPU 提取白名单】只提取以下 CPU 型号的价格，其他 CPU 型号全部忽略：\n"
                 if intel:
-                    wl_text += "Intel 型号（第10代及以后）：" + "、".join(intel) + "\n"
-                if amd:
-                    wl_text += f"AMD 型号：{amd}\n"
+                    wl_text += "Intel 及其他型号：" + "、".join(intel) + "\n"
+                if amd_text:
+                    wl_text += f"AMD 型号：{amd_text}\n"
                 wl_text += """【白名单匹配规则】（用于处理图片中不规范的型号书写方式）：
 1. 一行含多个型号（用 / 或 - 分隔，如 "i7 10700F/10700"、"i3 4160/4170"）：逐个拆开判断，只要其中任一型号在白名单内，就提取该行对应型号的价格（只输出白名单内的型号）
 2. 前缀变体等价："US" = "U5"、"I5" = "i5"、大小写不敏感，视为同一型号
@@ -156,7 +158,7 @@ def extract_one(img_path: str) -> tuple[str, bool, str]:
     try:
         t0 = time.time()
         data = real_extract(img_path)
-        data["_source_image"] = os.path.basename(img_path)
+        data["source_image"] = os.path.basename(img_path)
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         n = len(data.get("products", []))
