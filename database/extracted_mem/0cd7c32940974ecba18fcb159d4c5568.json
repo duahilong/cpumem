@@ -1,0 +1,1886 @@
+{
+  "sheet_date": "2026-05-29",
+  "products": [
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "千禧 8G 1600 DDR3",
+      "price_type": "默认",
+      "price": 999,
+      "hardware_type": "DDR3"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "千禧 8G 2660 DDR4",
+      "price_type": "默认",
+      "price": 299,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "千禧 8G 3200 DDR4",
+      "price_type": "默认",
+      "price": 310,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "千禧 16G 3200 DDR4",
+      "price_type": "默认",
+      "price": 540,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "千禧 32G 3200 DDR4",
+      "price_type": "默认",
+      "price": 1420,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "天箭 8G 3200 枪灰 CL18",
+      "price_type": "单条",
+      "price": 315,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "天箭 16G 3200 枪灰 CL18",
+      "price_type": "单条",
+      "price": 550,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "天箭 32G 3200 枪灰 CL18",
+      "price_type": "单条",
+      "price": 1430,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "天箭 8G 3600 枪灰 CL18",
+      "price_type": "单条",
+      "price": 510,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "天箭 16G 3600 枪灰/黑白 CL18/CL16",
+      "price_type": "单条",
+      "price": 650,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "天箭 16G 4000 黑白 CL19",
+      "price_type": "单条",
+      "price": 710,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "GL2000 8G 3200 C22",
+      "price_type": "默认",
+      "price": 289,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "GL2000 16G 3200 C22",
+      "price_type": "默认",
+      "price": 489,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "GL2000 8G 3200 马甲 黑/白 C18",
+      "price_type": "默认",
+      "price": 299,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "GL2000 16G 3200 马甲 黑/白 C18",
+      "price_type": "默认",
+      "price": 499,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "GL2000 16G 3600 马甲 黑/白 C16",
+      "price_type": "默认",
+      "price": 640,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "GL2000 16G 3600 马甲 黑/白 C16",
+      "price_type": "默认",
+      "price": 650,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "笔记本 DDR3 4G 1600",
+      "price_type": "默认",
+      "price": 70,
+      "hardware_type": "DDR3"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "笔记本 DDR3 8G 1600",
+      "price_type": "默认",
+      "price": 135,
+      "hardware_type": "DDR3"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "笔记本 DDR4 4G 2666",
+      "price_type": "默认",
+      "price": 180,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "笔记本 DDR4 8G 2666",
+      "price_type": "默认",
+      "price": 299,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "笔记本 DDR4 8G 3200",
+      "price_type": "默认",
+      "price": 320,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "笔记本 DDR4 16G 3200",
+      "price_type": "默认",
+      "price": 550,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "笔记本 DDR4 32G 3200",
+      "price_type": "默认",
+      "price": 1480,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "笔记本 DDR5 8G 3200 C42",
+      "price_type": "默认",
+      "price": 600,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "笔记本 DDR5 16G 4800 C40",
+      "price_type": "默认",
+      "price": 990,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "笔记本 DDR5 16G 5600 C46",
+      "price_type": "默认",
+      "price": 1020,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "笔记本 DDR5 32G 4800 C42",
+      "price_type": "默认",
+      "price": 2000,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "R3 128G 2.5寸SATA",
+      "price_type": "默认",
+      "price": 169,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "R3 256G 2.5寸SATA",
+      "price_type": "默认",
+      "price": 280,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "R3 512G 2.5寸SATA",
+      "price_type": "默认",
+      "price": 460,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "R3 1TB 2.5寸SATA",
+      "price_type": "默认",
+      "price": 760,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "R3 2TB 2.5寸SATA",
+      "price_type": "默认",
+      "price": 1580,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "R3 4TB 2.5寸SATA",
+      "price_type": "默认",
+      "price": 3280,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "M3P 128G mSATA",
+      "price_type": "默认",
+      "price": 215,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "M3P 256G mSATA",
+      "price_type": "默认",
+      "price": 365,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "M3P 512G mSATA",
+      "price_type": "默认",
+      "price": 600,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "M3P 1TB mSATA",
+      "price_type": "默认",
+      "price": 955,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "M3P 2TB mSATA",
+      "price_type": "默认",
+      "price": 1780,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "N3L 256G M.2 SATA协议 2280",
+      "price_type": "默认",
+      "price": 365,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "N3L 512G M.2 SATA协议 2280",
+      "price_type": "默认",
+      "price": 600,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "N3L 1TB M.2 SATA协议 2280",
+      "price_type": "默认",
+      "price": 955,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "N3L 2TB M.2 SATA协议 2280",
+      "price_type": "默认",
+      "price": 1780,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "N3L 512G M.2 SATA协议 2242",
+      "price_type": "默认",
+      "price": 635,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "N3L 1TB M.2 SATA协议 2242",
+      "price_type": "默认",
+      "price": 1010,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "N3L 2TB M.2 SATA协议 2242",
+      "price_type": "默认",
+      "price": 1820,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P3L 256G NVMe3.0 1500M",
+      "price_type": "默认",
+      "price": 320,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P3L 512G NVMe3.0 3000M",
+      "price_type": "默认",
+      "price": 520,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P3L 1TB NVMe3.0 3200M",
+      "price_type": "默认",
+      "price": 760,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P3L 2TB NVMe3.0 3200M",
+      "price_type": "默认",
+      "price": 1400,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P3L 512G NVMe3.0 2900M 2242",
+      "price_type": "默认",
+      "price": 680,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P3L 1TB NVMe3.0 3500M 2242",
+      "price_type": "默认",
+      "price": 1150,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P4L 512G NVMe4.0 5100M",
+      "price_type": "默认",
+      "price": 560,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P4L 1TB NVMe4.0 5300M",
+      "price_type": "默认",
+      "price": 780,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P4L 2TB NVMe4.0 5300M",
+      "price_type": "默认",
+      "price": 1480,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P4L 4TB NVMe4.0 5000M",
+      "price_type": "默认",
+      "price": 3240,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P4L 512G NVMe4.0 4900M 2230",
+      "price_type": "默认",
+      "price": 800,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P4L 1TB NVMe4.0 4900M 2230",
+      "price_type": "默认",
+      "price": 1320,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P4L 2TB NVMe4.0 4900M 2230",
+      "price_type": "默认",
+      "price": 2230,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P4P 4TB NVMe4.0 7300M 带缓存",
+      "price_type": "默认",
+      "price": 4500,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P4P 8TB NVMe4.0 7300M 带缓存",
+      "price_type": "默认",
+      "price": 8800,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "G7T 512G NVMe4.0 7250M 无缓存",
+      "price_type": "默认",
+      "price": 800,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "G7T 1TB NVMe4.0 7250M 无缓存",
+      "price_type": "默认",
+      "price": 950,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "G7T 2TB NVMe4.0 7250M 无缓存",
+      "price_type": "默认",
+      "price": 1050,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "G7T 4TB NVMe4.0 7250M 无缓存",
+      "price_type": "默认",
+      "price": 4050,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "G7Q 1TB NVMe4.0 7250M 无缓存",
+      "price_type": "默认",
+      "price": 1050,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P5L 1TB NVMe5.0 12000M 带缓存",
+      "price_type": "默认",
+      "price": 1480,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P5L 2TB NVMe5.0 12500M 带缓存",
+      "price_type": "默认",
+      "price": 2550,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P5A 1TB NVMe5.0 14500M 无缓存",
+      "price_type": "默认",
+      "price": 1450,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金邦",
+      "product_name": "P5A 2TB NVMe5.0 14500M 无缓存",
+      "price_type": "默认",
+      "price": 2500,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "千禧 普条 16G 5600 DDR5 C46",
+      "price_type": "默认",
+      "price": 960,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "千禧 普条 16G 5600 DDR5 C40",
+      "price_type": "默认",
+      "price": 1000,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "千禧 普条 32G 5600 DDR5 C46",
+      "price_type": "默认",
+      "price": 1980,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 32G 6000 DDR5 2*16 C40 镁光",
+      "price_type": "默认",
+      "price": 2100,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 32G 6000 DDR5 2*16 C36 镁光",
+      "price_type": "默认",
+      "price": 2200,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 32G 6000 DDR5 1*32 C40 镁光",
+      "price_type": "默认",
+      "price": 2100,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 32G 6000 DDR5 1*32 C32 海力士",
+      "price_type": "默认",
+      "price": 2450,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 32G 6000 DDR5 1*32 C30 海力士",
+      "price_type": "默认",
+      "price": 2490,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 32G 6000 DDR5 2*16 C30 海力士M-DIE",
+      "price_type": "默认",
+      "price": 2480,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 32G 6000 DDR5 2*16 C28 海力士",
+      "price_type": "默认",
+      "price": 2630,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 32G 6800 DDR5 2*16 C34 海力士",
+      "price_type": "默认",
+      "price": 2950,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 32G 7200 DDR5 2*16 C34 海力士",
+      "price_type": "默认",
+      "price": 3000,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 灯条 32G 6400 DDR5 2*16 C34 海力士A-DIE",
+      "price_type": "默认",
+      "price": 2980,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 灯条 32G 6800 DDR5 2*16 C34 海力士A-DIE",
+      "price_type": "默认",
+      "price": 3020,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 灯条 32G 7200 DDR5 2*16 C34 海力士A-DIE",
+      "price_type": "默认",
+      "price": 3080,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 48G 6000 DDR5 2*24 C40",
+      "price_type": "默认",
+      "price": 3100,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 48G 6400 DDR5 2*24 C40",
+      "price_type": "默认",
+      "price": 3250,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 96G 5600 DDR5 2*48 C40",
+      "price_type": "默认",
+      "price": 6900,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 48G 6000 DDR5 2*24 C28 海力士M-DIE",
+      "price_type": "默认",
+      "price": 3350,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 48G 6800 DDR5 2*24 C36 海力士M-DIE",
+      "price_type": "默认",
+      "price": 3450,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 48G 7200 DDR5 2*24 C36 海力士M-DIE",
+      "price_type": "默认",
+      "price": 3650,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 马甲 48G 8000 DDR5 2*24 C40 海力士M-DIE",
+      "price_type": "默认",
+      "price": 3950,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 灯条 48G 7200 DDR5 2*24 C36 海力士M-DIE",
+      "price_type": "默认",
+      "price": 3750,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "巨鲨 灯条 48G 8000 DDR5 2*24 C40 海力士M-DIE",
+      "price_type": "默认",
+      "price": 4050,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "超光 灯条 32G 6000 DDR5 2*16 C30 海力士M-DIE",
+      "price_type": "默认",
+      "price": 2680,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金邦",
+      "product_name": "超光 灯条 48G 6000 DDR5 2*24 C28 海力士M-DIE",
+      "price_type": "默认",
+      "price": 3450,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "汉存",
+      "product_name": "PC DDR3 16G 3200 专用条 C22 X4",
+      "price_type": "默认",
+      "price": 480,
+      "hardware_type": "DDR3"
+    },
+    {
+      "category": "内存",
+      "vendor": "汉存",
+      "product_name": "PC DDR4 8G 3200 通用条 C22",
+      "price_type": "默认",
+      "price": 300,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "汉存",
+      "product_name": "PC DDR4 16G 3200 通用条 C22",
+      "price_type": "默认",
+      "price": 530,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "汉存",
+      "product_name": "玄麒 8G 3200 单条 黑白 C18",
+      "price_type": "单条",
+      "price": 305,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "汉存",
+      "product_name": "玄麒 16G 3200 单条 黑白 C18",
+      "price_type": "单条",
+      "price": 540,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "汉存",
+      "product_name": "SA550 256G 2.5寸SATA",
+      "price_type": "默认",
+      "price": 270,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "汉存",
+      "product_name": "SA550 512G 2.5寸SATA",
+      "price_type": "默认",
+      "price": 450,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "汉存",
+      "product_name": "NV3500 256G NVMe3.0",
+      "price_type": "默认",
+      "price": 310,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "汉存",
+      "product_name": "NV3500 512G NVMe3.0",
+      "price_type": "默认",
+      "price": 510,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "内存",
+      "vendor": "亿储",
+      "product_name": "DDR3 8G 1600",
+      "price_type": "默认",
+      "price": 75,
+      "hardware_type": "DDR3"
+    },
+    {
+      "category": "内存",
+      "vendor": "亿储",
+      "product_name": "DDR4 8G 2666",
+      "price_type": "默认",
+      "price": 180,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "亿储",
+      "product_name": "DDR4 16G 2666",
+      "price_type": "默认",
+      "price": 385,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "亿储",
+      "product_name": "DDR4 8G 3200",
+      "price_type": "默认",
+      "price": 255,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "亿储",
+      "product_name": "DDR4 16G 3200",
+      "price_type": "默认",
+      "price": 400,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "亿储",
+      "product_name": "笔记本 DDR3 8G 1600",
+      "price_type": "默认",
+      "price": 89,
+      "hardware_type": "DDR3"
+    },
+    {
+      "category": "内存",
+      "vendor": "亿储",
+      "product_name": "笔记本 DDR4 8G 3200",
+      "price_type": "默认",
+      "price": 260,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "亿储",
+      "product_name": "笔记本 DDR4 16G 3200",
+      "price_type": "默认",
+      "price": 420,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "亿储",
+      "product_name": "固态 J15 128G 2.5寸",
+      "price_type": "默认",
+      "price": 135,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "亿储",
+      "product_name": "固态 J15 256G 2.5寸",
+      "price_type": "默认",
+      "price": 235,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "亿储",
+      "product_name": "固态 J15 512G 2.5寸",
+      "price_type": "默认",
+      "price": 405,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "亿储",
+      "product_name": "固态 J20 512G M.2 NVME",
+      "price_type": "默认",
+      "price": 520,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金士顿",
+      "product_name": "A400 240G SATA3",
+      "price_type": "默认",
+      "price": 370,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金士顿",
+      "product_name": "A400 480G SATA3",
+      "price_type": "默认",
+      "price": 495,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金士顿",
+      "product_name": "NV3 500G 5000M",
+      "price_type": "默认",
+      "price": 565,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金士顿",
+      "product_name": "NV3 1TB 6000M",
+      "price_type": "默认",
+      "price": 775,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "金士顿",
+      "product_name": "NV3 2TB 6000M",
+      "price_type": "默认",
+      "price": 1480,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "台式机 4G 1600",
+      "price_type": "全新",
+      "price": 65,
+      "hardware_type": "DDR3"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "台式机 8G 3200 DDR4",
+      "price_type": "全新",
+      "price": 415,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "台式机 16G 3200 DDR4",
+      "price_type": "全新",
+      "price": 585,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "笔记本 4G 1600",
+      "price_type": "全新",
+      "price": 75,
+      "hardware_type": "DDR3"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "笔记本 8G 3200 DDR4",
+      "price_type": "全新",
+      "price": 505,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "笔记本 16G 3200 DDR4",
+      "price_type": "全新",
+      "price": 790,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "笔记本 32G 3200 DDR4",
+      "price_type": "全新",
+      "price": 1950,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "笔记本 32G 5600 DDR5",
+      "price_type": "全新",
+      "price": 1900,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "FURY 野兽 16G 3200",
+      "price_type": "默认",
+      "price": 695,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "FURY 野兽 32G 3200",
+      "price_type": "默认",
+      "price": 1830,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "FURY 野兽 16G 3600",
+      "price_type": "默认",
+      "price": 760,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "FURY 野兽 32G 3600",
+      "price_type": "默认",
+      "price": 1850,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "FURY 野兽 16G 6000 C36 DDR5",
+      "price_type": "默认",
+      "price": 1200,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "FURY 野兽 32G 6000 C36 DDR5",
+      "price_type": "默认",
+      "price": 2600,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "FURY 野兽 16G 6000 C30 DDR5 海力士-Mdie",
+      "price_type": "默认",
+      "price": 1350,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "FURY 野兽 32G 6000 C30 DDR5 海力士Adie",
+      "price_type": "默认",
+      "price": 2730,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "金士顿",
+      "product_name": "FURY 野兽 16G 6000 C30 DDR5 海力士Adie 灯条",
+      "price_type": "默认",
+      "price": 1350,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "PRO H610M-S DDR4",
+      "price_type": "默认",
+      "price": 359,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "PRO H610M-E DDR4",
+      "price_type": "默认",
+      "price": 399,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "PRO H610M-E",
+      "price_type": "默认",
+      "price": 450,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "PRO B760M-E DDR4",
+      "price_type": "默认",
+      "price": 490,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "B760M-A DDR4 II",
+      "price_type": "默认",
+      "price": 785,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "B760M-A DDR4 WIFI II",
+      "price_type": "默认",
+      "price": 835,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "MAG B760M MORTAR II",
+      "price_type": "默认",
+      "price": 990,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "MAG B760M MORTAR WIFI II",
+      "price_type": "默认",
+      "price": 1040,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "PRO Z790-P",
+      "price_type": "默认",
+      "price": 1290,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "PRO Z790-P WIFI",
+      "price_type": "默认",
+      "price": 1350,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "Z790 GAMING PLUS WIFI",
+      "price_type": "默认",
+      "price": 1390,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "PRO Z890-S WIFI WHITE",
+      "price_type": "默认",
+      "price": 1290,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "PRO Z890-P",
+      "price_type": "默认",
+      "price": 1350,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "Z890 GAMING PLUS WIFI",
+      "price_type": "默认",
+      "price": 1750,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "A520M-A PRO",
+      "price_type": "默认",
+      "price": 299,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "B450M-A PRO MAX",
+      "price_type": "默认",
+      "price": 380,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "PRO B650M-E",
+      "price_type": "默认",
+      "price": 515,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "PRO B650M-P",
+      "price_type": "默认",
+      "price": 790,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "PRO B850M-P WIFI",
+      "price_type": "默认",
+      "price": 890,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "主板",
+      "vendor": "微星",
+      "product_name": "PRO B850M-A WIFI",
+      "price_type": "默认",
+      "price": 940,
+      "hardware_type": "MB"
+    },
+    {
+      "category": "显卡",
+      "vendor": "影驰",
+      "product_name": "RTX 5060 8G FIRE",
+      "price_type": "默认",
+      "price": 2390,
+      "hardware_type": "GPU"
+    },
+    {
+      "category": "显卡",
+      "vendor": "影驰",
+      "product_name": "RTX 5060 8G 魔刃 OC",
+      "price_type": "默认",
+      "price": 2520,
+      "hardware_type": "GPU"
+    },
+    {
+      "category": "显卡",
+      "vendor": "影驰",
+      "product_name": "RTX 5060Ti 8G FIRE",
+      "price_type": "默认",
+      "price": 2690,
+      "hardware_type": "GPU"
+    },
+    {
+      "category": "显卡",
+      "vendor": "影驰",
+      "product_name": "RTX 5060Ti 8G 魔刃 OC",
+      "price_type": "默认",
+      "price": 2990,
+      "hardware_type": "GPU"
+    },
+    {
+      "category": "显卡",
+      "vendor": "影驰",
+      "product_name": "RTX 5060Ti 16G 魔刃 MAX OC",
+      "price_type": "默认",
+      "price": 3980,
+      "hardware_type": "GPU"
+    },
+    {
+      "category": "显卡",
+      "vendor": "影驰",
+      "product_name": "RTX 5060Ti 16G 金属大师 黑金版 MAX OC",
+      "price_type": "默认",
+      "price": 4080,
+      "hardware_type": "GPU"
+    },
+    {
+      "category": "显卡",
+      "vendor": "影驰",
+      "product_name": "RTX 5070 12G 魔刃 OC",
+      "price_type": "默认",
+      "price": 4950,
+      "hardware_type": "GPU"
+    },
+    {
+      "category": "显卡",
+      "vendor": "影驰",
+      "product_name": "RTX 5070 12G 金属大师 黑金版 OC",
+      "price_type": "默认",
+      "price": 5150,
+      "hardware_type": "GPU"
+    },
+    {
+      "category": "显卡",
+      "vendor": "影驰",
+      "product_name": "RTX 5070Ti 16G 魔刃 OC",
+      "price_type": "默认",
+      "price": 6950,
+      "hardware_type": "GPU"
+    },
+    {
+      "category": "显卡",
+      "vendor": "影驰",
+      "product_name": "RTX 5070Ti 16G 金属大师 黑金版 OC",
+      "price_type": "默认",
+      "price": 7150,
+      "hardware_type": "GPU"
+    },
+    {
+      "category": "显卡",
+      "vendor": "影驰",
+      "product_name": "RTX 5080 16G 魔刃 OC",
+      "price_type": "默认",
+      "price": 8950,
+      "hardware_type": "GPU"
+    },
+    {
+      "category": "显卡",
+      "vendor": "影驰",
+      "product_name": "RTX 5080 16G 金属大师 黑金版 OC",
+      "price_type": "默认",
+      "price": 9150,
+      "hardware_type": "GPU"
+    },
+    {
+      "category": "显卡",
+      "vendor": "影驰",
+      "product_name": "RTX 5090D 24G 星曜 NOX OC",
+      "price_type": "默认",
+      "price": 19990,
+      "hardware_type": "GPU"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "870 EVO 250G",
+      "price_type": "默认",
+      "price": 800,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "870 EVO 500G",
+      "price_type": "默认",
+      "price": 1150,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "870 EVO 1T",
+      "price_type": "默认",
+      "price": 1850,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "870 EVO 2T",
+      "price_type": "默认",
+      "price": 3400,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "870 EVO 4T",
+      "price_type": "默认",
+      "price": 6500,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "870 EVO 8T",
+      "price_type": "默认",
+      "price": 13000,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "990 EVO PLUS 1T 7150M",
+      "price_type": "默认",
+      "price": 1250,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "990 EVO PLUS 2T 7250M",
+      "price_type": "默认",
+      "price": 2250,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "990 EVO PLUS 4T 7250M",
+      "price_type": "默认",
+      "price": 4550,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "990 PRO 1T 7450M 带缓存",
+      "price_type": "默认",
+      "price": 1450,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "990 PRO 2T 7450M 带缓存",
+      "price_type": "默认",
+      "price": 2450,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "990 PRO 4T 7450M 带缓存",
+      "price_type": "默认",
+      "price": 4700,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "9100 PRO 1T 14700M 带缓存 PCIe5.0",
+      "price_type": "默认",
+      "price": 1600,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "9100 PRO 2T 14700M 带缓存 PCIe5.0",
+      "price_type": "默认",
+      "price": 2650,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "9100 PRO 4T 14800M 带缓存 PCIe5.0",
+      "price_type": "默认",
+      "price": 4900,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "三星",
+      "product_name": "9100 PRO 8T 14800M 带缓存 PCIe5.0",
+      "price_type": "默认",
+      "price": 9800,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "绿盘 2.5寸 1T SATA3",
+      "price_type": "默认",
+      "price": 1050,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "SN3000 1T 5000M",
+      "price_type": "默认",
+      "price": 765,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "SN5000 2T 5150M",
+      "price_type": "默认",
+      "price": 1330,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "SN5100 1T 7100M",
+      "price_type": "默认",
+      "price": 850,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "SN5100 2T 7100M",
+      "price_type": "默认",
+      "price": 1500,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "SN7100 1T 7250M",
+      "price_type": "默认",
+      "price": 950,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "SN7100 2T 7250M",
+      "price_type": "默认",
+      "price": 1580,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "SN7100 4T 7250M",
+      "price_type": "默认",
+      "price": 4350,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "SN850X 1T 7300M 带缓存",
+      "price_type": "默认",
+      "price": 1100,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "SN850X 2T 7300M 带缓存",
+      "price_type": "默认",
+      "price": 2000,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "SN850X 4T 7300M 带缓存",
+      "price_type": "默认",
+      "price": 4500,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "SN8100 1T 14900M 带缓存 PCIe5.0",
+      "price_type": "默认",
+      "price": 1250,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "SN8100 2T 14900M 带缓存 PCIe5.0",
+      "price_type": "默认",
+      "price": 2150,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "固态硬盘",
+      "vendor": "西数",
+      "product_name": "SN8100 4T 14900M 带缓存 PCIe5.0",
+      "price_type": "默认",
+      "price": 4650,
+      "hardware_type": "SSD"
+    },
+    {
+      "category": "内存",
+      "vendor": "芝奇",
+      "product_name": "幻锋戟 32G 6400 C32 16G*2 银色",
+      "price_type": "默认",
+      "price": 2950,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "芝奇",
+      "product_name": "幻锋戟 32G 6800 C34 16G*2 银色",
+      "price_type": "默认",
+      "price": 3150,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "芝奇",
+      "product_name": "幻锋戟 32G 7200 C34 16G*2 银色",
+      "price_type": "默认",
+      "price": 3200,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "芝奇",
+      "product_name": "幻锋戟 64G 6400 C32 32G*2 银-黑",
+      "price_type": "默认",
+      "price": 5500,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "芝奇",
+      "product_name": "幻锋戟 48G 6800 C34 24G*2 黑色",
+      "price_type": "默认",
+      "price": 4200,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "芝奇",
+      "product_name": "幻锋戟 48G 8000 C40 24G*2 黑色 CK版",
+      "price_type": "默认",
+      "price": 4300,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "芝奇",
+      "product_name": "幻锋戟 96G 6400 C32 48G*2 黑色",
+      "price_type": "默认",
+      "price": 7500,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "芝奇",
+      "product_name": "幻锋戟 96G 6800 C34 48G*2 黑色",
+      "price_type": "默认",
+      "price": 8100,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "芝奇",
+      "product_name": "幻锋戟 32G 6000 C28 16G*2 黑色 EXPO",
+      "price_type": "默认",
+      "price": 3500,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "芝奇",
+      "product_name": "幻锋戟 32G 6800 C34 16G*2 银色",
+      "price_type": "默认",
+      "price": 3800,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "芝奇",
+      "product_name": "幻锋戟 32G 7200 C34 16G*2 银色",
+      "price_type": "默认",
+      "price": 3850,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "海盗船",
+      "product_name": "CMK 16G 3200",
+      "price_type": "默认",
+      "price": 650,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "海盗船",
+      "product_name": "CMK 32G 3200",
+      "price_type": "默认",
+      "price": 1450,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "海盗船",
+      "product_name": "CMK 16G 3600",
+      "price_type": "默认",
+      "price": 680,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "海盗船",
+      "product_name": "CMK 32G 3600",
+      "price_type": "默认",
+      "price": 1480,
+      "hardware_type": "DDR4"
+    },
+    {
+      "category": "内存",
+      "vendor": "海盗船",
+      "product_name": "CMK 16G 6000 C36",
+      "price_type": "默认",
+      "price": 1050,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "海盗船",
+      "product_name": "CMK 16G 6400 C32",
+      "price_type": "默认",
+      "price": 1300,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "海盗船",
+      "product_name": "CMK 32G 6000 C38",
+      "price_type": "默认",
+      "price": 2100,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "海盗船",
+      "product_name": "CMK 32G 6000 Z30 EXPO",
+      "price_type": "默认",
+      "price": 2400,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "海盗船",
+      "product_name": "CMK 32G 4800 C40 16G*2",
+      "price_type": "默认",
+      "price": 1750,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "海盗船",
+      "product_name": "CMK 32G 5600 C36 裸条",
+      "price_type": "默认",
+      "price": 1750,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "内存",
+      "vendor": "海盗船",
+      "product_name": "CMK 64G 6400 C42",
+      "price_type": "默认",
+      "price": 6400,
+      "hardware_type": "DDR5"
+    },
+    {
+      "category": "显示器",
+      "vendor": "航嘉",
+      "product_name": "21.5寸 E2236FV",
+      "price_type": "默认",
+      "price": 319,
+      "hardware_type": "MON"
+    },
+    {
+      "category": "显示器",
+      "vendor": "航嘉",
+      "product_name": "24.5寸 E2561FV",
+      "price_type": "默认",
+      "price": 339,
+      "hardware_type": "MON"
+    },
+    {
+      "category": "显示器",
+      "vendor": "航嘉",
+      "product_name": "27寸 E2731F",
+      "price_type": "默认",
+      "price": 439,
+      "hardware_type": "MON"
+    },
+    {
+      "category": "显示器",
+      "vendor": "航嘉",
+      "product_name": "32寸 E3231FV",
+      "price_type": "默认",
+      "price": 669,
+      "hardware_type": "MON"
+    },
+    {
+      "category": "显示器",
+      "vendor": "航嘉",
+      "product_name": "23.8寸 G2456 1K 180HZ",
+      "price_type": "默认",
+      "price": 459,
+      "hardware_type": "MON"
+    },
+    {
+      "category": "显示器",
+      "vendor": "航嘉",
+      "product_name": "27寸 G2737 1K 180HZ",
+      "price_type": "默认",
+      "price": 559,
+      "hardware_type": "MON"
+    },
+    {
+      "category": "显示器",
+      "vendor": "微星",
+      "product_name": "MP242L 1K 100Hz",
+      "price_type": "默认",
+      "price": 399,
+      "hardware_type": "MON"
+    },
+    {
+      "category": "显示器",
+      "vendor": "微星",
+      "product_name": "MP272L 1K 100Hz",
+      "price_type": "默认",
+      "price": 509,
+      "hardware_type": "MON"
+    },
+    {
+      "category": "显示器",
+      "vendor": "微星",
+      "product_name": "G274F 1K 200Hz",
+      "price_type": "默认",
+      "price": 660,
+      "hardware_type": "MON"
+    },
+    {
+      "category": "显示器",
+      "vendor": "微星",
+      "product_name": "G27QF E20 2K 200Hz",
+      "price_type": "默认",
+      "price": 760,
+      "hardware_type": "MON"
+    },
+    {
+      "category": "显示器",
+      "vendor": "微星",
+      "product_name": "G75QF X32 2K 320Hz",
+      "price_type": "默认",
+      "price": 1250,
+      "hardware_type": "MON"
+    }
+  ],
+  "source_image": "0cd7c32940974ecba18fcb159d4c5568.png"
+}

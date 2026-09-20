@@ -1,6 +1,8 @@
 {
   "base_url": "http://10.0.0.21:8311/v1",
   "api_key": "apikey-duhailong",
-  "model": "glm-5.3-flash"
-
+  "model": "glm-5.3-flash",
+  "ocr_base_url": "http://127.0.0.1:8080",
+  "timeout_seconds": 300,
+  "ocr_timeout_seconds": 600
 }
