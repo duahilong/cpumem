@@ -204,7 +204,7 @@ OCR 输出特性（0a04 基准实测）：
 ```
 
 - 拼接：`build_joint_prompt(ocr_md)` = 指令文件全文 + OCR Markdown（数据区在指令之后，边界清晰）；
-- **不再使用 `base.txt` / `CPU.txt`**：新结构自带完整 JSON 契约和白名单。旧 base.txt 的"含星号价格视为无效"与新结构的"数字+**** 有效"规则冲突，弃用 base.txt 后冲突消除。`build_cpu_prompt()`（base.txt + CPU.txt）仍保留在代码中但已无调用方；
+- **不再使用 `base.txt` / `CPU.txt`**：新结构自带完整 JSON 契约和白名单。旧 base.txt 的"含星号价格视为无效"与新结构的"数字+**** 有效"规则冲突，弃用 base.txt 后冲突消除；`build_cpu_prompt()`（base.txt + CPU.txt 拼接）与 `CPU.txt` 已删除。
 - 提示词文件可运行时修改，改后需手动删 `extracted_cpu/` 对应 JSON 才会重新提取。
 
 ### 3.5 LLM 调用与后处理（`call_llm()` / `extract_one()`）
@@ -242,7 +242,7 @@ python database/verify.py database/extracted_cpu/<result>.json
 - 比对口径：人工"散片=x, 原盒=y" → 提取必须两条记录；F/KF/K 后缀严格区分；U 系特例（`15 12490F` = i5 12490F）；
 - 报告五类错误：类型错（数值对但散片原盒标反）/ 数值错 / 漏提 / 多提 / 清单外；
 - 人工基准：
-  - `0a04-pricebenchmark.xlsx`（= `jg.xlsx`，2026-03-11 期，78 型号，脚本默认加载）；
+  - `0a04-pricebenchmark.xlsx`（2026-03-11 期，78 型号，脚本默认加载；与已删除的 jg.xlsx 数据一致）；
   - `0b5a-pricebenchmark.xlsx`（2026-09-11 期，87 型号）——0b5a 验证需临时指定基准路径；
 - **只读，不修改任何数据**，仅输出终端报告；报告是提示词迭代的输入：错误类型指向修复方向，
   迭代 `prompts/OCR主_指令.txt` 后需手动删 `extracted_cpu/` 对应 JSON 重新提取；
@@ -257,7 +257,7 @@ python database/verify.py database/extracted_cpu/<result>.json
 
 | 图片 | 图期 | 基准 | 准确率 |
 |---|---|---|---|
-| `0a04d486…png` | 2026-03-11 | `jg.xlsx`（78 型号） | **100%**（132/132） |
+| `0a04d486…png` | 2026-03-11 | `0a04-pricebenchmark.xlsx`（78 型号） | **100%**（132/132） |
 | `0b5aad69…png` | 2026-09-11 | `0b5a-pricebenchmark.xlsx`（87 型号） | **95.3%**（141/148） |
 
 配置演化对比（0b5a 为试金石）：
@@ -280,7 +280,7 @@ python database/verify.py database/extracted_cpu/<result>.json
 2. **结果尚未入库**：CPU 管线输出在 `extracted_cpu/`，`clean_load.py` 读取 `extracted/`。CPU 结果入库需先合并（或扩展 `clean_load.py` 输入源），注意同 basename 冲突；
 3. **缓存不自动失效**：`crop_cache/`（裁剪）、`ocr_cache/`（OCR Markdown）、`extracted_cpu/`（结果）三层缓存都按文件名复用。改裁剪逻辑 → 清 `crop_cache/`；改 OCR prompt → 清 `ocr_cache/`；改提示词 → 删 `extracted_cpu/` 对应 JSON；
 4. **锚点检测的适用前提**：左右边界竖线检测基于当前模板（316 张全部成功）；若未来出现完全不同版式的报价单，检测会回退固定比例或失败，需人工检查；
-5. **白名单与基准联动**：`cpu_watchlist.json`（开发基准源 `jg.txt`）需与人工基准同步扩充，否则验证出现"清单外"误报；
+5. **白名单与基准联动**：CPU 管线白名单内嵌在 `OCR主_指令.txt`，通用管线白名单在 `cpu_watchlist.json`，需与人工基准同步扩充，否则验证出现"清单外"误报；
 6. **配额与安全**：批量提取会真实消耗 LLM 配额并向外部服务传输图片，执行前需明确授权；`llm_config.json` 含敏感凭据，严禁外泄；
 7. **失败处理原则**：失败图计入清单、重跑重试，绝不伪造成功，也不因 LLM 提取不确定而补造价格——宁可漏掉不确定行，也不跨行/跨列/跨产品推断。
 

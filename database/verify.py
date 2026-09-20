@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""验证脚本：将提取结果与人工基准（jg.xlsx）精确比对，输出准确率报告。
+"""验证脚本：将提取结果与人工基准（pricebenchmark/0a04-pricebenchmark.xlsx）精确比对，输出准确率报告。
 
 比对口径：
 - 人工"散片=x, 原盒=y" → 提取必须有两条记录（x散片 + y原盒）才算对
@@ -19,7 +19,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 import openpyxl
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-XLSX_PATH = os.path.join(BASE_DIR, "jg.xlsx")
+XLSX_PATH = os.path.join(BASE_DIR, "pricebenchmark", "0a04-pricebenchmark.xlsx")
 
 
 def norm(name: str) -> str:
@@ -53,7 +53,7 @@ def norm(name: str) -> str:
 
 
 def load_ground_truth() -> dict:
-    """读 jg.xlsx → {norm_key: {'raw': 原名, '散片': x or None, '原盒': y or None}}"""
+    """读人工基准 → {norm_key: {'raw': 原名, '散片': x or None, '原盒': y or None}}"""
     wb = openpyxl.load_workbook(XLSX_PATH)
     ws = wb.worksheets[0]
     gt = {}
@@ -151,7 +151,7 @@ def main():
 
     print("=" * 70)
     print(f"验证报告: {os.path.basename(ext_path)}")
-    print(f"基准: jg.xlsx ({len(gt)} 个型号) | 提取: {len(ext)} 个型号")
+    print(f"基准: {os.path.basename(XLSX_PATH)} ({len(gt)} 个型号) | 提取: {len(ext)} 个型号")
     print("-" * 70)
     print(f"✅ 正确: {ok_points}/{total} 核对点 | 准确率: {acc:.1f}%")
     print()

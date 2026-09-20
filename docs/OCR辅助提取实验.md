@@ -90,14 +90,14 @@
 最终方案已合入 `database/extract_cpu.py`（详见 [`CPU提取管线.md`](CPU提取管线.md)）：
 
 - **OCR 通道**：`ocr_markdown()` 调 llama.cpp GLM-OCR（地址在 `llm_config.json` 的 `ocr_base_url` 配置，当前 `http://127.0.0.1:8080`；prompt 简短版，temperature=0），HTML → `html_table_to_markdown()` 转 Markdown，缓存 `ocr_cache/`；失败抛 `RuntimeError`（该图计失败，不降级）；
-- **提示词**：`prompts/OCR主_指令.txt`（新结构指令，含 JSON 契约/白名单/消歧规则）+ OCR Markdown 数据区；base.txt/CPU.txt 不再使用（`build_cpu_prompt()` 保留但无调用方）；
+- **提示词**：`prompts/OCR主_指令.txt`（新结构指令，含 JSON 契约/白名单/消歧规则）+ OCR Markdown 数据区；base.txt/CPU.txt 不再使用（`build_cpu_prompt()` 与 `CPU.txt` 已删除）；
 - **纯顺序单路径**：S1 断点检查 → S2 锚点裁剪 → S3 OCR → S4 提示词 → S5 LLM → S6 落盘；无降级分支。
 
 定稿验证（两期人工基准）：
 
 | 图片 | 图期 | 基准 | 准确率 |
 |---|---|---|---|
-| `0a04d486…png` | 2026-03-11 | `jg.xlsx`（78 型号） | **100%**（132/132） |
+| `0a04d486…png` | 2026-03-11 | `0a04-pricebenchmark.xlsx`（78 型号） | **100%**（132/132） |
 | `0b5aad69…png` | 2026-09-11 | `0b5a-pricebenchmark.xlsx`（87 型号） | **95.3%**（141/148） |
 
 0b5a 残余 7 项错误的根因：OCR 型号名误识（12700 系列三行同名、13900F 前缀）+ 疑似基准口径差异（13100/13100F、9850X3D，待人工核图）。

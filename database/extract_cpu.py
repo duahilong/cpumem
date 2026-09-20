@@ -7,12 +7,10 @@ CPU 专用提取管线 —— 与其他类目完全独立。
     2. 三段式锚点裁剪 crop_cpu_image()（像素检测表格线，逐图自适应，缓存 crop_cache/）
     3. OCR 通道 ocr_markdown()：llama.cpp GLM-OCR 转写裁剪图为 Markdown 表格
        （prompt: prompts 外置；temperature=0 确定性输出；缓存 ocr_cache/）
-    4. 组装提示词：
-       - OCR 可用 → 新结构联合提示词（prompts/OCR主_指令.txt + OCR Markdown），
-         OCR 为主、图为辅，两步式提取
-       - OCR 失败但有缓存 → 纯 OCR 模式（缓存 Markdown + 指令，无图）
-       - OCR 不可用且无缓存 → 纯视觉模式（prompts/base.txt + prompts/CPU.txt + 白名单）
+    4. 组装提示词：prompts/OCR主_指令.txt + OCR Markdown
+       （OCR 为主、图为辅，两步式提取；指令自带完整 JSON 契约与白名单）
     5. 调用多模态 LLM（配置 llm_config.json），输出 JSON 存档 extracted_cpu/
+       OCR 失败/返回空 → 抛 RuntimeError，该图计失败（不降级，重跑自动重试）
 
 用法：
     python extract_cpu.py <图片文件或目录> [--workers N] [--status]
@@ -59,7 +57,6 @@ OUT_DIR = os.path.join(BASE_DIR, "extracted_cpu")
 CROP_DIR = os.path.join(BASE_DIR, "crop_cache")
 CONFIG_PATH = os.path.join(BASE_DIR, "llm_config.json")
 PROMPTS_DIR = os.path.join(BASE_DIR, "prompts")
-WATCHLIST_PATH = os.path.join(BASE_DIR, "cpu_watchlist.json")
 JOINT_PROMPT_PATH = os.path.join(PROMPTS_DIR, "OCR主_指令.txt")   # 新结构联合提示词（OCR 为主、图为辅）
 os.makedirs(OUT_DIR, exist_ok=True)
 os.makedirs(CROP_DIR, exist_ok=True)
@@ -75,34 +72,6 @@ def load_prompt(fname: str, default: str = "") -> str:
         with open(path, encoding="utf-8") as f:
             return f.read()
     return default
-
-
-def build_cpu_prompt() -> str:
-    """组装 CPU 专用提示词：base + CPU 分类规则 + 白名单。"""
-    prompt = load_prompt("base.txt") + "\n" + load_prompt("CPU.txt")
-
-    if os.path.exists(WATCHLIST_PATH):
-        try:
-            wl = json.load(open(WATCHLIST_PATH, encoding="utf-8"))
-            if wl.get("enabled"):
-                intel = wl.get("Intel", [])
-                amd = wl.get("AMD", "")
-                amd_text = "、".join(amd) if isinstance(amd, list) else str(amd)
-                wl_text = "\n【CPU 提取白名单】只提取以下 CPU 型号的价格，其他 CPU 型号全部忽略：\n"
-                if intel:
-                    wl_text += "Intel 及其他型号：" + "、".join(intel) + "\n"
-                if amd_text:
-                    wl_text += f"AMD 型号：{amd_text}\n"
-                wl_text += """【白名单匹配规则】（用于处理图片中不规范的型号书写方式）：
-1. 一行含多个型号（用 / 或 - 分隔，如 "i7 10700F/10700"、"i3 4160/4170"）：逐个拆开判断，只要其中任一型号在白名单内，就提取该行对应型号的价格（只输出白名单内的型号）
-2. 前缀变体等价："US" = "U5"、"I5" = "i5"、大小写不敏感，视为同一型号
-3. 后缀变体等价："U5 225集成"/"U5 225带显"/"U5 225焦显" 是核显版；"xxxF""xxxK""xxxKF" 后缀是独立型号，各自判断是否在白名单内
-4. 白名单外的 CPU 型号不要输出；非 CPU 类产品不受白名单限制，照常提取
-"""
-                prompt += wl_text
-        except Exception:
-            pass
-    return prompt
 
 
 # ============ 裁剪预处理 ============
@@ -332,7 +301,7 @@ def call_llm(crop_path: str, prompt: str, use_image: bool = True) -> dict:
 
 def extract_one(img_path: str) -> tuple[str, bool, str]:
     """顺序处理：裁剪 → OCR → 组装提示词 → LLM 提取。
-    提示词以 OCR 输出为主（prompts/OCR主_指令.txt + OCR Markdown + 裁剪图），
+    提示词以 OCR 输出为主（prompts/OCR主_指令.txt + OCR Markdown + 裁剪图）,
     OCR 失败/返回空时抛出 RuntimeError，该图计为失败（不降级纯视觉）。"""
     name = os.path.splitext(os.path.basename(img_path))[0]
     out_path = os.path.join(OUT_DIR, name + ".json")
