@@ -1,6 +1,6 @@
 # CPU 提取管线文档
 
-本文档专门描述 **CPU 报价图片的专用提取管线**：它的工作流程、每个环节的实现方式，以及当前的实测效果。它与 [`数据库设计文档.md`](数据库设计文档.md) 互为补充——那份文档描述整个 ETL 项目的架构（提取 → 清洗 → 入库），本文档只聚焦 CPU 这一条独立管线。质量验证由独立脚本 `verify.py` 承担（不属于管线，见第 4 节），OCR 辅助通道的实验演化过程见 [`OCR辅助提取实验.md`](OCR辅助提取实验.md)。
+本文档专门描述 **CPU 报价图片的专用提取管线**：它的工作流程、每个环节的实现方式，以及当前的实测效果。它与 [`数据库设计文档.md`](数据库设计文档.md) 互为补充——那份文档描述整个 ETL 项目的架构（提取 → 清洗 → 入库），本文档只聚焦 CPU 这一条独立管线。数据导入由 `load_cpu.py` 承担（管线最后一步，见第 4 节），OCR 辅助通道的实验演化过程见 [`OCR辅助提取实验.md`](OCR辅助提取实验.md)。
 
 > 说明：文档中的行号与实现细节以撰写时的代码为准；若与代码实际行为不一致，以代码为准。
 
@@ -14,12 +14,13 @@ CPU 提取与其他类目（mem / TF / 其他）**完全独立**，入口是 `da
 价格图片/CPU/*.png                    # 输入：仅 CPU 子目录下的截图
   → S1 断点续跑检查                    # extracted_cpu/ 已有结果 JSON 则跳过
   → S2 三段式锚点裁剪 crop_cpu_image() # 像素检测表格线，逐图自适应，缓存 crop_cache/
+  → S2b 表级竖向分块 split_table_blocks() # 两级左右分块到子表粒度（LL/LR），缓存 crop_cache/<图片名>_LL/_LR.png
   → S3 OCR 通道 ocr_markdown()        # llama.cpp GLM-OCR → HTML → Markdown，缓存 ocr_cache/
   → S4 提示词组装 build_joint_prompt() # prompts/OCR主_指令.txt + OCR Markdown（OCR 为主、图为辅）
   → S5 LLM 提取 call_llm()            # 裁剪图 + 提示词 → JSON
   → S6 后处理过滤 + 落盘               # 只保留 category=="CPU"，附 source_image
 extracted_cpu/<图片名>.json           # 输出：每张图一份 JSON（断点续跑检查点）
-  → S7 质量验证 verify.py             # 对比人工基准（独立脚本，人工触发，不属于管线）
+  → S7 数据导入 load_cpu.py           # 预验证 + 幂等入库 → cpumem.db（见第 4 节）
 ```
 
 设计要点：
@@ -131,8 +132,8 @@ extracted_cpu/<图片名>.json           # 输出：每张图一份 JSON（断�
 │  重跑自动重试失败项（S1 不拦截无结果文件的图）                      │
 └──────────────────────────────────────────────────────────────────┘
 
-管线在 S6 结束。质量验证（verify.py）是管线外的独立脚本，由人工触发，
-不属于批量提取流程（见第 4 节）。
+提取管线在 S6 结束。数据导入（load_cpu.py）是管线的后续步骤，由人工触发
+（见第 4 节）：预验证落盘数据后导入 cpumem.db。
 ```
 
 ---
@@ -168,6 +169,51 @@ extracted_cpu/<图片名>.json           # 输出：每张图一份 JSON（断�
 三段裁剪的动机：旧版固定 6.2%/42% 会把右侧表格 917~955px 的窄边切进 CPU 裁剪图、表头行露出"台式硬盘/金士顿内存"等其他产品列头（LLM 幻觉源）。三段式沿表格线切割后干扰源消除，0b5a 上准确率从 87.8% 提升到 92.7%（详见第 5 节）。
 
 裁剪结果缓存到 `crop_cache/`，改裁剪逻辑后需手动清空该目录才会生效。
+
+#### 3.2.1 表级竖向分块（`split_table_blocks()`，切块方案已定稿）
+
+三段裁剪的产物（`crop_cache/<图片名>.png`，宽高比约 1.58~1.88）在基础上做**两级左右分块**，
+每块 = 完整的子表（型号列 + 该表的全部价格列，表内信息不拆散）：
+
+```text
+crop_cache/<图片名>.png（三段裁剪产物）
+  → 第二层 @ CPU 区/硬盘区分界竖线 x/w≈0.397（0.392~0.405，纯内存不落盘）
+  │    ├─ left：全部 CPU 子表（处理器表 + 15/14 表 + AMD 表，CPU 价格列全在）
+  │    └─ right：台式硬盘/内存等非 CPU 区域（干扰源，不参与提取，不落盘）
+  → 第三层 @ left 块内处理器表原盒列右边界竖线 x/w≈0.536
+  │    ├─ LL：完整 "intel 处理器" 表（型号+散片+原盒 三列全在）
+  │    └─ LR：完整 "intel 15/14 代处理器" 表（三列全在）+ AMD 表 + 硬盘表边缘
+```
+
+cut point 均相对分界竖线偏移 +2px，落在表间隙内（表内信息不拆散，无信息丢失）；
+仅第三层 LL/LR 落盘，前缀命名与第一层裁剪图同目录平铺。
+
+设计原则（实测定稿，经过多次错误修正）：
+
+- **分界线必须落在表边界/表间隙**，绝不能落在表内列之间——曾误把 15/14 表内部的
+  散片列右边界（0.352）当表分界，导致 15/14 表被拦腰切断、原盒列被丢弃；
+- **每块内含该表的全部价格列**（散片/原盒同行可见），LLM 提取时不依赖其他块。
+
+分块检测实现（全部确定性像素检测，与 3.2 锚点检测同一套技术）：
+
+- 主体区域（y=10%~98%）统计每列深色占比（<180），占比 >0.6 的列聚类成竖线；
+- 在先验范围内选分界竖线，逐图自适应；
+- **比例先验（实测）**：第二层分界 x/w ∈ 0.392~0.405（极差 1.3%），第三层分界在
+  left 块内 x/w ≈ 0.536——竖线相对位置是模板属性，与图片缩放/宽高比无关
+  （41 种尺寸、宽高比 1.58~1.88 的图全部切对）；
+- 置信校验：检测到竖线后检验比例是否在先验范围（±2%），超出视为检测失败 →
+  回退固定比例（0.399 / 0.538），误差最多 1~2% 宽度，不会切到文字。
+
+实测效果（`0099e3b0…png` 及极端比例图验证）：
+
+- 每块 = 完整子表，型号后缀完整（`I5 12400F` 的 F、`I7 12700KF` 的 KF 等），
+  解决整图 OCR 丢后缀导致的张冠李戴（详见第 5 节）；
+- 价格标记（少/新/剩1/****）全部保留在正确单元格；
+- 已知小瑕疵：LR 块内 AMD 表的型号列在 HTML rowspan 展开后重复两遍（价格列无错，
+  LLM 提取层取唯一值过滤）。
+
+分块产物前缀命名平铺缓存到 `crop_cache/`（`<图片名>_LL.png` / `<图片名>_LR.png`，与第一层裁剪图同目录，
+无子目录层级）；第二层切分为纯内存中间操作，不落盘。改分块逻辑后需手动清空对应 `_LL/_LR` 文件。
 
 ### 3.3 OCR 通道（`ocr_markdown()` + `html_table_to_markdown()`）
 
@@ -230,24 +276,44 @@ OCR 输出特性（0a04 基准实测）：
 
 ---
 
-## 4. 质量验证（`verify.py`，管线外独立脚本）
+## 4. 数据导入（`load_cpu.py`，管线最后一步）
 
-`verify.py` 是**独立的验证脚本，不属于提取管线**（管线在 S6 落盘即结束），由人工触发：
+提取结果落盘（S6）后，由 `load_cpu.py` 完成预验证和入库（人工触发，独立于提取流程）：
 
 ```bash
-python database/verify.py database/extracted_cpu/<result>.json
+python database/load_cpu.py                              # 默认导入 output_cpu/extracted_cpu/
+python database/load_cpu.py output_cpu/extracted_cpu/0a04….json   # 导入指定单份
+python database/load_cpu.py --out-dir ./my_out           # 对齐自定义输出目录
+python database/load_cpu.py --status                     # 查看库内 CPU 数据统计
 ```
 
-- 作用：将提取结果与人工基准（`pricebenchmark/` 目录的 Excel）精确比对，输出准确率报告；
-- 比对口径：人工"散片=x, 原盒=y" → 提取必须两条记录；F/KF/K 后缀严格区分；U 系特例（`15 12490F` = i5 12490F）；
-- 报告五类错误：类型错（数值对但散片原盒标反）/ 数值错 / 漏提 / 多提 / 清单外；
-- 人工基准：
-  - `0a04-pricebenchmark.xlsx`（2026-03-11 期，78 型号，脚本默认加载；与已删除的 jg.xlsx 数据一致）；
-  - `0b5a-pricebenchmark.xlsx`（2026-09-11 期，87 型号）——0b5a 验证需临时指定基准路径；
-- **只读，不修改任何数据**，仅输出终端报告；报告是提示词迭代的输入：错误类型指向修复方向，
-  迭代 `prompts/OCR主_指令.txt` 后需手动删 `extracted_cpu/` 对应 JSON 重新提取；
-- 局限：基准是"某一期"的标注，只能拿同期图验证（跨期会大量假错误）；
-  `norm()` 是验证专用归一化，与数据库侧 `norm_product_key()` 不同，不要混用。
+### 处理流程
+
+1. **预验证（入库前规则校验，不通过则跳过该条并记录原因）**：
+   - `source_image` 非空（数据库溯源/幂等键，随记录写入 quotes）
+   - `sheet_date` 可解析为 YYYY-MM-DD（norm_date）
+   - `product_name` 非空
+   - `price` 可转数字、> 0、在 1..200000、不含 * / X 标记
+   - `price_type` 在散片/原盒枚举内
+   - `category` 非空
+2. **幂等入库**：先删除同 `source_image` 的旧 quotes 记录，再写入三张表：
+   - `products`：`product_key`（vendor-型号）不存在时插入，`display_name` 剥离规格后缀；
+   - `dates`：`INSERT OR IGNORE` 日期维表；
+   - `quotes`：每条价格类型一行（同一 CPU 的散片/原盒是两行），带 `source_image` 溯源。
+   清洗映射函数复用 `clean_load.py`，与通用入口保持一致。
+3. **库内去重**：同 `(date_key, product_key, price_type)` 多条时，同价只留一条；
+   异价写入 `conflicts_cpu.json` 等人工核对原图后处理（去重后数据量稳定，幂等不重复累积）。
+
+### 数据库表结构（cpumem.db）
+
+| 表 | 关键字段 |
+| --- | --- |
+| `products` | `product_key` PK、`display_name`、`category`、`vendor` |
+| `dates` | `date_key` PK、`year`、`month`、`day`、`weekday` |
+| `quotes` | `id`、`product_key`、`date_key`、`price`、`price_type`、`source_image` |
+
+索引：`idx_q_prod_date(product_key, date_key)`、`idx_p_cat_vendor(category, vendor)`；
+`source_image` 是可追溯性要求和幂等键，不要删除。
 
 ---
 
@@ -277,11 +343,11 @@ python database/verify.py database/extracted_cpu/<result>.json
 ## 6. 已知注意事项与边界
 
 1. **OCR 是硬依赖**：提示词以 OCR 为主，`ocr_markdown()` 失败即抛 `RuntimeError`，该图计失败。跑批前确认 llama.cpp 服务（`127.0.0.1:8080`）已启动；
-2. **结果尚未入库**：CPU 管线输出在 `extracted_cpu/`，`clean_load.py` 读取 `extracted/`。CPU 结果入库需先合并（或扩展 `clean_load.py` 输入源），注意同 basename 冲突；
-3. **缓存不自动失效**：`crop_cache/`（裁剪）、`ocr_cache/`（OCR Markdown）、`extracted_cpu/`（结果）三层缓存都按文件名复用。改裁剪逻辑 → 清 `crop_cache/`；改 OCR prompt → 清 `ocr_cache/`；改提示词 → 删 `extracted_cpu/` 对应 JSON；
-4. **锚点检测的适用前提**：左右边界竖线检测基于当前模板（316 张全部成功）；若未来出现完全不同版式的报价单，检测会回退固定比例或失败，需人工检查；
-5. **白名单与基准联动**：CPU 管线白名单内嵌在 `OCR主_指令.txt`，通用管线白名单在 `cpu_watchlist.json`，需与人工基准同步扩充，否则验证出现"清单外"误报；
-6. **配额与安全**：批量提取会真实消耗 LLM 配额并向外部服务传输图片，执行前需明确授权；`llm_config.json` 含敏感凭据，严禁外泄；
+2. **CPU 结果通过 `load_cpu.py` 入库**（见第 4 节）；通用管线的 mem/TF 结果走 `clean_load.py`（读取 `extracted/`），两条入库路径互不干扰；
+3. **缓存不自动失效**：`output_cpu/` 下的 `crop_cache/`（裁剪图 `<图片名>.png` + 分块图 `<图片名>_LL/_LR.png`）、`ocr_cache/`（OCR Markdown）、`extracted_cpu/`（结果）缓存都按文件名复用。改裁剪逻辑 → 清 `crop_cache/`；改分块逻辑 → 清 `crop_cache/` 下对应 `_LL/_LR` 文件；改 OCR prompt → 清 `ocr_cache/`；改提示词 → 删 `extracted_cpu/` 对应 JSON；
+4. **锚点/分块检测的适用前提**：左右边界与分块分界竖线检测基于当前模板（316 张全部成功）；若未来出现完全不同版式的报价单，检测会回退固定比例或失败，需人工检查；
+5. **白名单联动**：CPU 管线白名单内嵌在 `OCR主_指令.txt`，通用管线白名单在 `cpu_watchlist.json`，更新型号策略时需同步两处；
+6. **配额与安全**：批量提取和导入会真实消耗 LLM 配额、传输图片、写入数据库，执行前需明确授权；`llm_config.json` 含敏感凭据，严禁外泄；
 7. **失败处理原则**：失败图计入清单、重跑重试，绝不伪造成功，也不因 LLM 提取不确定而补造价格——宁可漏掉不确定行，也不跨行/跨列/跨产品推断。
 
 **超时配置**（`llm_config.json`，防止脚本卡住）：
@@ -309,14 +375,11 @@ python database/extract_cpu.py ../价格图片/CPU/0a04d486d137d2d382483b63a0f84
 # 指定并发（上限 6）
 python database/extract_cpu.py ../价格图片/CPU --workers 4
 
-# 用人工基准验证一份提取结果（0a04；独立脚本，不属于管线）
-python database/verify.py database/extracted_cpu/<result>.json
-
-# 0b5a 验证需临时指定基准路径
-python -c "import sys; sys.path.insert(0,'database'); import verify; \
-verify.XLSX_PATH='database/pricebenchmark/0b5a-pricebenchmark.xlsx'; \
-sys.argv=['verify.py','database/extracted_cpu/<result>.json']; verify.main()"
+# 数据导入（管线最后一步：预验证 + 幂等入库 cpumem.db）
+python database/load_cpu.py                              # 默认导入 output_cpu/extracted_cpu/
+python database/load_cpu.py output_cpu/extracted_cpu/0a04….json   # 导入指定单份
+python database/load_cpu.py --status                     # 查看库内 CPU 数据统计
 
 # 仅语法检查（无副作用）
-python -m py_compile database/extract_cpu.py database/verify.py
+python -m py_compile database/extract_cpu.py database/load_cpu.py
 ```

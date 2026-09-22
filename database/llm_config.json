@@ -3,6 +3,7 @@
   "api_key": "apikey-duhailong",
   "model": "glm-5.3-flash",
   "ocr_base_url": "http://127.0.0.1:8080",
-  "timeout_seconds": 300,
+  "ocr_max_tokens": 16384,
+  "timeout_seconds": 500,
   "ocr_timeout_seconds": 600
 }

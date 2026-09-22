@@ -1,0 +1,114 @@
+{
+  "('2026-04-30', 'intel-i7-12700f', '散片')": [
+    {
+      "kept": {
+        "id": 4836,
+        "price": 1650.0,
+        "source": null
+      },
+      "conflict": {
+        "id": 4838,
+        "price": 2125.0,
+        "source_image": "0197de4d949272b5885da6b4c2d5c985.png"
+      }
+    }
+  ],
+  "('2026-04-30', 'intel-i9-13900k', '散片')": [
+    {
+      "kept": {
+        "id": 4850,
+        "price": 2110.0,
+        "source": null
+      },
+      "conflict": {
+        "id": 4851,
+        "price": 2580.0,
+        "source_image": "0197de4d949272b5885da6b4c2d5c985.png"
+      }
+    }
+  ],
+  "('2026-06-16', 'intel-i7-12700f', '散片')": [
+    {
+      "kept": {
+        "id": 4907,
+        "price": 1450.0,
+        "source": null
+      },
+      "conflict": {
+        "id": 4908,
+        "price": 1460.0,
+        "source_image": "01d754f39c2ed0b085c737e0f3fe972b.png"
+      }
+    }
+  ],
+  "('2026-06-16', 'intel-i9-13900kf', '散片')": [
+    {
+      "kept": {
+        "id": 4920,
+        "price": 2030.0,
+        "source": null
+      },
+      "conflict": {
+        "id": 4921,
+        "price": 2450.0,
+        "source_image": "01d754f39c2ed0b085c737e0f3fe972b.png"
+      }
+    }
+  ],
+  "('2026-09-07', 'intel-i7-12700k', '散片')": [
+    {
+      "kept": {
+        "id": 4978,
+        "price": 1575.0,
+        "source": null
+      },
+      "conflict": {
+        "id": 4979,
+        "price": 1580.0,
+        "source_image": "02662dfd15c3c754361bfb5d3999139c.png"
+      }
+    }
+  ],
+  "('2026-09-07', 'intel-i5-13400', '散片')": [
+    {
+      "kept": {
+        "id": 4985,
+        "price": 870.0,
+        "source": null
+      },
+      "conflict": {
+        "id": 4986,
+        "price": 769.0,
+        "source_image": "02662dfd15c3c754361bfb5d3999139c.png"
+      }
+    }
+  ],
+  "('2026-06-23', 'intel-i5-12400', '散片')": [
+    {
+      "kept": {
+        "id": 5323,
+        "price": 810.0,
+        "source": null
+      },
+      "conflict": {
+        "id": 5325,
+        "price": 1025.0,
+        "source_image": "04927e7474a2e86764d634e118eae393.png"
+      }
+    }
+  ],
+  "('2026-09-05', 'intel-i5-13400', '散片')": [
+    {
+      "kept": {
+        "id": 5403,
+        "price": 870.0,
+        "source": null
+      },
+      "conflict": {
+        "id": 5404,
+        "price": 772.0,
+        "source_image": "05e6c1a6ec4d8fddda29f80750bf2333.png"
+      }
+    }
+  ]
+}

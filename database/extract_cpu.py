@@ -13,19 +13,21 @@ CPU 专用提取管线 —— 与其他类目完全独立。
        OCR 失败/返回空 → 抛 RuntimeError，该图计失败（不降级，重跑自动重试）
 
 用法：
-    python extract_cpu.py <图片文件或目录> [--workers N] [--status]
+    python extract_cpu.py <图片文件或目录> [--workers N] [--out-dir 目录] [--status]
     （必须显式传入目标；无参数时只打印用法，不执行管线）
 
 示例：
     python extract_cpu.py ../价格图片/CPU                     # 提取整个目录
     python extract_cpu.py ../价格图片/CPU/0a04….png           # 提取单张
     python extract_cpu.py ../价格图片/CPU --workers 4         # 指定并发
+    python extract_cpu.py ../价格图片/CPU --out-dir ./my_out  # 指定输出目录
     python extract_cpu.py --status                            # 查看默认目录进度
 
-输出：
-    extracted_cpu/<图片名>.json      # 每张图一份提取结果（含 source_image 溯源）
-    crop_cache/<图片名>.png          # 裁剪图缓存（复用，避免重复裁剪）
-    ocr_cache/<图片名>.md            # OCR Markdown 转写缓存（同图同输出）
+输出（默认 database/output_cpu/，与脚本同级；全部管线产物都在其中）：
+    output_cpu/extracted_cpu/<图片名>.json   # 提取结果（含 source_image 溯源，断点续跑检查点）
+    output_cpu/crop_cache/<图片名>.png       # 裁剪图缓存（复用，避免重复裁剪）
+    output_cpu/ocr_cache/<图片名>.md         # OCR Markdown 转写缓存（同图同输出）
+    output_cpu/extract_cpu_progress.log      # 提取进度日志
 
 环境变量：
     OCR_BASE_URL=... # 覆盖 OCR 服务地址（优先级低于 llm_config.json 的 ocr_base_url）
@@ -36,7 +38,7 @@ CPU 专用提取管线 —— 与其他类目完全独立。
 
 独立性：
     - 只处理 价格图片/CPU/ 目录
-    - 输出到独立目录 extracted_cpu/，与 extracted/（其他类目）互不影响
+    - 全部产物写入统一的输出目录（默认 database/output_cpu/），与其他类目互不影响
 """
 import os
 import sys
@@ -52,14 +54,18 @@ import numpy as np
 from PIL import Image
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-IMG_DIR = os.path.join(os.path.dirname(BASE_DIR), "价格图片", "CPU")   # 只处理 CPU 子目录
-OUT_DIR = os.path.join(BASE_DIR, "extracted_cpu")
-CROP_DIR = os.path.join(BASE_DIR, "crop_cache")
+IMG_DIR = os.path.join(os.path.dirname(BASE_DIR), "价格图片", "CPU")   # --status 默认查看目录
 CONFIG_PATH = os.path.join(BASE_DIR, "llm_config.json")
 PROMPTS_DIR = os.path.join(BASE_DIR, "prompts")
 JOINT_PROMPT_PATH = os.path.join(PROMPTS_DIR, "OCR主_指令.txt")   # 新结构联合提示词（OCR 为主、图为辅）
-os.makedirs(OUT_DIR, exist_ok=True)
-os.makedirs(CROP_DIR, exist_ok=True)
+
+# 默认输出目录：与脚本同级（database/output_cpu/），可用 --out-dir 调整。
+# 输出目录包含管线产生的全部文件：结果 JSON、裁剪缓存、OCR Markdown 缓存。
+OUTPUT_DIR = os.path.join(BASE_DIR, "output_cpu")
+OUT_DIR = os.path.join(OUTPUT_DIR, "extracted_cpu")
+CROP_DIR = os.path.join(OUTPUT_DIR, "crop_cache")
+OCR_CACHE_DIR = os.path.join(OUTPUT_DIR, "ocr_cache")
+PROGRESS_LOG = os.path.join(OUTPUT_DIR, "extract_cpu_progress.log")
 
 MAX_WORKERS = 2    # 默认并发数（可用 --workers N 调整）
 
@@ -134,12 +140,96 @@ def crop_cpu_image(img_path: str) -> str:
     return out_path
 
 
+# ============ 表级竖向分块（切块方案已定稿） ============
+
+# 分块产物与前缀命名平铺在 crop_cache/（<图片名>_LL.png / <图片名>_LR.png）；
+# 第二层切分为纯内存中间操作，不落盘（从裁剪图重新生成是确定性操作）
+
+# 分界竖线先验（实测 316 张裁剪图：CPU 区右边界 0.392~0.405 极差 1.3%，
+# 处理器表/15/14 表分界在 left 块内 x/w≈0.536）；先验校验范围设 ±2%
+SPLIT1_RANGE = (0.38, 0.42)   # 第二层分界：CPU 区（两个 CPU 子表）与硬盘/内存区的分界竖线 x≈0.397
+SPLIT1_FALLBACK = 0.399       # 第二层检测失败回退（实测均值）
+SPLIT2_RANGE = (0.50, 0.58)   # 第三层分界：left 块内处理器表原盒列右边界 x≈0.536
+SPLIT2_FALLBACK = 0.538       # 第三层检测失败回退（实测均值）
+
+
+def detect_vlines(arr, y0_ratio=0.10, y1_ratio=0.98, threshold=0.6,
+                  cluster_gap=3, dark=180):
+    """在图像主体区域检测竖线，返回竖线 x 坐标列表（聚类后的线中心）。
+    与 3.2 锚点检测同一套像素技术：主体带统计每列深色占比，
+    占比超阈值的列聚类成线。"""
+    h, w = arr.shape
+    band = arr[int(h * y0_ratio):int(h * y1_ratio)]
+    dark_ratio = (band < dark).mean(axis=0)
+    cols = [x for x in range(w) if dark_ratio[x] > threshold]
+    groups = []
+    for x in cols:
+        if groups and x - groups[-1][-1] <= cluster_gap:
+            groups[-1].append(x)
+        else:
+            groups.append([x])
+    return [int(sum(g) / len(g)) for g in groups]
+
+
+def _find_split(vlines, width, ratio_range, fallback, offset=0):
+    """在预期比例范围内选分界竖线；无候选时回退固定比例。
+    offset: 切点相对竖线的偏移像素（如 +2 避开竖线本身，落在表间隙内）。"""
+    lo, hi = ratio_range
+    cand = [x for x in vlines if lo < x / width < hi]
+    if cand:
+        return cand[-1] + offset
+    return int(width * fallback)
+
+
+def split_table_blocks(crop_path: str) -> dict:
+    """表级竖向分块：两级左右分块，把裁剪图切成两个独立子表块（方案定稿）。
+
+    第二层 @ x/w≈0.397（"intel 15/14 代处理器"表原盒列右边界，
+    即与台式硬盘表之间的分界竖线，纯内存中间操作，不落盘）：
+      left = 全部 CPU 子表（处理器表 + 15/14 表 + AMD 表，全部 CPU 价格列都在）
+      right = 台式硬盘/内存等非 CPU 区域（干扰源，不参与 CPU 提取）
+
+    第三层 @ left 块内 x/w≈0.536（处理器表原盒列右边界，与 15/14 表分界）：
+      LL = 完整 "intel 处理器" 表（型号+散片+原盒 三列全在）
+      LR = 完整 "intel 15/14 代处理器" 表（三列全在）+ AMD 表 + 硬盘表边缘
+
+    切点均相对分界竖线偏移 +2px，落在表间隙内（表内信息不拆散，无信息丢失）；
+    竖线位置是模板属性，与图片缩放/宽高比无关；检测失败回退固定比例。
+
+    结果前缀命名平铺缓存到 crop_cache/（<图片名>_LL.png / <图片名>_LR.png），
+    已存在直接复用。返回 {'LL': 路径, 'LR': 路径}。"""
+    name = os.path.splitext(os.path.basename(crop_path))[0]
+    ll_path = os.path.join(CROP_DIR, name + "_LL.png")
+    lr_path = os.path.join(CROP_DIR, name + "_LR.png")
+    if os.path.exists(ll_path) and os.path.exists(lr_path):
+        return {"LL": ll_path, "LR": lr_path}
+
+    img = Image.open(crop_path).convert("RGB")
+    arr = np.array(img.convert("L"))
+    w, h = img.size
+
+    # 第二层：CPU 区与硬盘/内存区之间的分界竖线（纯内存，不落盘）
+    vlines = detect_vlines(arr)
+    split1 = _find_split(vlines, w, SPLIT1_RANGE, SPLIT1_FALLBACK, offset=2)
+    left = img.crop((0, 0, split1, h))
+
+    # 第三层：left 块内处理器表与 15/14 表之间的分界竖线
+    arr_l = np.array(left.convert("L"))
+    w_l = left.size[0]
+    vlines_l = detect_vlines(arr_l)
+    split2 = _find_split(vlines_l, w_l, SPLIT2_RANGE, SPLIT2_FALLBACK, offset=2)
+    ll = left.crop((0, 0, split2, h))
+    lr = left.crop((split2, 0, w_l, h))
+
+    ll.save(ll_path)
+    lr.save(lr_path)
+    return {"LL": ll_path, "LR": lr_path}
+
+
 # ============ OCR 辅助通道（llama.cpp GLM-OCR） ============
 
 MAX_WORKERS_LIMIT = 6   # 并发上限（OCR/LLM 服务承压限制）
 OCR_PROMPT = "识别图片中的所有文字，输出为Markdown格式"
-OCR_CACHE_DIR = os.path.join(BASE_DIR, "ocr_cache")
-os.makedirs(OCR_CACHE_DIR, exist_ok=True)
 
 
 def get_ocr_base_url() -> str:
@@ -362,6 +452,23 @@ def main():
         status()
         return
 
+    # --out-dir <目录>：输出目录（默认 database/output_cpu/，与脚本同级）
+    global OUTPUT_DIR, OUT_DIR, CROP_DIR, OCR_CACHE_DIR, PROGRESS_LOG
+    if "--out-dir" in sys.argv:
+        i = sys.argv.index("--out-dir")
+        if i + 1 >= len(sys.argv):
+            print("错误: --out-dir 需要一个目录参数")
+            return
+        OUTPUT_DIR = os.path.abspath(sys.argv[i + 1])
+        OUT_DIR = os.path.join(OUTPUT_DIR, "extracted_cpu")
+        CROP_DIR = os.path.join(OUTPUT_DIR, "crop_cache")
+        OCR_CACHE_DIR = os.path.join(OUTPUT_DIR, "ocr_cache")
+        PROGRESS_LOG = os.path.join(OUTPUT_DIR, "extract_cpu_progress.log")
+
+    # 创建输出目录结构（全部管线产物都写入其中）
+    for d in (OUT_DIR, CROP_DIR, OCR_CACHE_DIR):
+        os.makedirs(d, exist_ok=True)
+
     # --workers N：调整并发数（默认 2，上限 6）
     workers = MAX_WORKERS
     if "--workers" in sys.argv:
@@ -381,16 +488,19 @@ def main():
 
     # 必须显式传入目标（图片文件或目录），否则打印用法并退出
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if "--workers" in sys.argv:
-        i = sys.argv.index("--workers")
-        if i + 1 < len(sys.argv):
-            args = [a for a in args if a != sys.argv[i + 1]]
+    # 排除 --out-dir 和 --workers 的参数值
+    for opt in ("--out-dir", "--workers"):
+        if opt in sys.argv:
+            i = sys.argv.index(opt)
+            if i + 1 < len(sys.argv):
+                args = [a for a in args if a != sys.argv[i + 1]]
     if not args:
-        print("用法: python extract_cpu.py <图片文件或目录> [--workers N] [--status]")
+        print("用法: python extract_cpu.py <图片文件或目录> [--workers N] [--out-dir 目录] [--status]")
         print("示例:")
         print(f"  python {os.path.basename(sys.argv[0])} ../价格图片/CPU")
         print(f"  python {os.path.basename(sys.argv[0])} ../价格图片/CPU/0a04d486d137d2d382483b63a0f84e78.png")
         print(f"  python {os.path.basename(sys.argv[0])} ../价格图片/CPU --workers 4")
+        print(f"  python {os.path.basename(sys.argv[0])} ../价格图片/CPU --out-dir ./my_output")
         return
 
     target = args[0]
@@ -437,7 +547,7 @@ def main():
             print(f"  ... 等共 {len(failed_list)} 张")
     total_done = sum(1 for img in images
                      if os.path.exists(os.path.join(OUT_DIR, os.path.splitext(os.path.basename(img))[0] + ".json")))
-    with open(os.path.join(BASE_DIR, "extract_cpu_progress.log"), "a", encoding="utf-8") as f:
+    with open(PROGRESS_LOG, "a", encoding="utf-8") as f:
         f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 本次新提取={ok} 失败={fail} 总进度={total_done}/{len(images)}\n")
 
 

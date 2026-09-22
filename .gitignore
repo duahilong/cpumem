@@ -1,6 +1,10 @@
 # 原始数据，防止泄露
 价格图片/
 
+# 提取管线产物
+database/output_cpu/
+database/output_mem/
+
 # 系统文件
 .DS_Store
 Thumbs.db

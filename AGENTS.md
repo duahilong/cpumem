@@ -2,89 +2,104 @@
 
 ## 项目定位
 
-这是一个**离线、脚本优先的硬件报价单 ETL 项目**。人工将报价截图按类目放入 `价格图片/`，Python 管线调用多模态 LLM（CPU 还结合本地 OCR）生成每图一个原始 JSON；清洗脚本再将部分结果规范化并写入 SQLite，用于 CPU、内存、存储及其他硬件的历史价格查询。
+这是一个**离线、脚本优先的硬件报价单 ETL 项目**。人工把报价截图按类目放入 `价格图片/`；Python 脚本以多模态 LLM 提取每图 JSON，CPU/MEM 专用路径还使用本地 GLM-OCR；部分结果再写入 SQLite，以支持硬件历史价格查询。
 
-项目没有 Web 服务、前端、包管理清单、CI、`pytest` 或 `unittest` 测试套件。代码、提示词、CLI 输出和领域枚举以中文为主；文本文件必须保持 UTF-8 编码。
+项目没有 Web 服务、前端、包管理清单、CI、迁移框架、`pytest`/`unittest` 测试套件或现成查询 UI。代码、提示词、CLI 和领域枚举主要使用中文。所有文本文件使用 UTF-8。
 
-**以当前代码为准。** `docs/CPU提取管线.md` 是当前 CPU 专用管线的主要说明；`docs/OCR辅助提取实验.md` 记录其演化实验；`docs/数据库设计文档.md` 同时包含当前架构、历史实验记录和部分过时描述。修改前应阅读相关代码与文档，不能只按旧文档假设行为。
+**以当前代码为准。** 文档含实验过程与已超前的实现设计：`docs/CPU提取管线.md`、`docs/MEM提取管线.md`、`docs/OCR辅助提取实验.md` 和 `docs/数据库设计文档.md` 都必须结合代码阅读，不能只按文档执行。
 
-## 当前整体架构
+## 先检查工作区与副作用
+
+1. 开始任务先执行 `git status --short`。本仓库可能已有用户未提交的代码、配置、数据库、原图、缓存、提取结果、冲突清单和报告；只修改任务相关文件，绝不覆盖、回退、删除或暂存无关改动。
+2. 原图 `价格图片/` 可能敏感。任何真实 CPU/MEM/通用提取都会 base64 编码图片并发送到配置的 OCR/LLM 服务，消耗配额和时间；批量执行或单图真实调用前均须获得用户明确授权。
+3. `clean_load.py`、`load_cpu.py` 会修改 SQLite 并可能删除重复/冲突 quote；`build_db.py` 会无提示删除并重建 DB。批量导入、运行 loader、建库或清缓存前必须先说明影响并获授权。
+4. `database/llm_config.json` 含敏感服务配置/凭据。不得打印、复制、提交、上传、记录或在回复中泄露其值。
+5. 图片、数据库、缓存、日志、提取 JSON、Excel、报告和实验产物大多**未被 `.gitignore` 保护**；不要将它们当作普通源码变更提交。
+
+## 当前架构与集成边界
 
 ```text
-价格图片/{CPU, mem, TF, 其他}/                 # 人工分类原图（敏感、本地输入）
-  ├─ database/extract_cpu.py                   # CPU 专用：裁剪 → OCR → LLM
-  │    ├─ database/crop_cache/*.png             # 裁剪缓存
-  │    ├─ database/ocr_cache/*.md               # OCR Markdown 缓存
-  │    └─ database/extracted_cpu/*.json         # CPU 结果
-  ├─ database/extract_mem.py                    # mem 图专用：整图 LLM + hardware_type 补齐
-  │    └─ database/extracted_mem/*.json         # MEM/混合图结果
-  └─ database/extract.py                        # 旧/通用：递归全部分类图
-       └─ database/extracted/*.json             # 通用结果
-
-目前的入库路径：database/extracted/*.json
-  -> database/clean_load.py
-  -> database/cpumem.db（products / dates / quotes）
-
-CPU 质量验证（独立、只读）：
-database/extracted_cpu/<结果>.json + database/pricebenchmark/0a04-pricebenchmark.xlsx
-  -> database/verify.py
-  -> 准确率及类型错 / 数值错 / 漏提 / 多提 / 清单外报告
+价格图片/{CPU, mem, TF, 其他}/                 # 手工分类原图（Git 忽略）
+  ├─ CPU 专用：database/extract_cpu.py
+  │    → database/output_cpu/{crop_cache, ocr_cache, extracted_cpu}/
+  │    → database/load_cpu.py
+  │    → database/cpumem.db
+  ├─ MEM 专用：database/extract_mem.py
+  │    → database/output_mem/{ocr_cache, extracted_mem}/
+  │    → （当前没有 load_mem.py；尚不能正式入库）
+  └─ 通用/旧路径：database/extract.py
+       → database/extracted/
+       → database/clean_load.py
+       → database/cpumem.db
 ```
 
-### 最重要的集成边界
+### 最重要的现状
 
-`clean_load.py` **只读取** `database/extracted/*.json`；它不会读取 `extracted_cpu/` 或 `extracted_mem/`。因此当前质量更高的 CPU 专用结果、以及 MEM 结果中的 `hardware_type`，尚未通过正式 loader 入库。扩展入库输入范围、迁移结果或批量合并前，必须先说明会影响数据库去重和 `source_image` 幂等行为，并取得用户明确许可。
-
-通用 `extract.py` 仍会递归扫描 `价格图片/` 的**全部**子目录（包括 CPU 和 mem），会与专用管线产生重叠结果；不要把它误认为只处理 TF/其他。生产性 CPU/MEM 工作优先使用各自专用脚本，除非任务明确要求通用管线。
+- **CPU 有独立的正式导入器**：`load_cpu.py` 默认读取 `database/output_cpu/extracted_cpu/*.json`，预验证、幂等写入 `cpumem.db`，随后全库去重并输出 CPU 冲突/报告。
+- **MEM 当前没有 importer**：尽管 `docs/MEM提取管线.md` 反复描述 `load_mem.py`、`quotes.hardware_type` 和 MEM 导入报告，当前仓库里**不存在 `database/load_mem.py`**；SQLite schema 也没有 `hardware_type` 列。不得按该文档假设 MEM 已可入库。
+- **通用 loader 只读 `database/extracted/*.json`**：`clean_load.py` 不读 `output_cpu/extracted_cpu/`、`output_mem/extracted_mem/`。
+- `extract.py` 仍递归扫描 `价格图片/` 的所有分类（包括 CPU、mem），不是“只处理其他类目”。它会与专用路径重叠；生产 CPU/MEM 工作优先使用专用脚本。
+- 三条路径都使用 basename 作为输出、缓存、进度和/或 `source_image` 键；同名文件、替换同名源图及跨目录合并都有碰撞/覆盖/复用风险。
 
 ## 目录与职责
 
-- `价格图片/CPU/`、`价格图片/mem/`、`价格图片/TF/`、`价格图片/其他/`：原始报价截图，已被 `.gitignore` 忽略。不得删除、移动、批量改名、提交或向外部服务传输，除非用户明确授权。
-- `database/extract_cpu.py`：当前 CPU 专用生产候选管线；使用 `numpy`、Pillow、本地 GLM-OCR、外部/网关多模态 LLM。
-- `database/extract_mem.py`：当前 MEM 专用管线；整图调用 LLM，保留图上所有硬件类目，并给每条结果补齐 `hardware_type`。
-- `database/extract.py`：通用/旧式多类目提取器；使用 `base.txt + <父目录>.txt`，递归扫描全部图片。
-- `database/prompts/`：运行时读取、可直接调整的提示词资产。
-  - `OCR主_指令.txt`：当前 CPU 管线实际使用的完整契约、白名单和两步式提取指令（OCR 为主、图为辅）。
-  - `base.txt`：通用路径的基础契约，extract.py / extract_mem.py 引用（CPU 管线不再使用）。
-  - `mem.txt`：MEM 专用补充规则，要求 `hardware_type`。
-  - `TF.txt`、`其他.txt`：通用路径的类别规则。
-- `database/cpu_watchlist.json`：CPU 型号白名单，供通用管线 `extract.py` 使用；CPU 管线的白名单已内嵌在 `OCR主_指令.txt` 中。更新型号策略时须同步两处和基准。
-- `database/llm_config.json`：OpenAI Chat Completions 兼容的 LLM 配置及 OCR 服务/超时配置；含敏感凭据，严禁读取后在回复、日志、文档或提交中复述其值。
-- `database/crop_cache/`：CPU 三段裁剪缓存。
-- `database/ocr_cache/`：CPU OCR 结果缓存（HTML 表格转成 Markdown）。
-- `database/extracted/`：通用 extractor 的原始 JSON；也是当前 loader 的唯一输入目录。
-- `database/extracted_cpu/`：CPU 专用结果；当前不自动入库。
-- `database/extracted_mem/`：MEM 专用结果；当前不自动入库。
-- `database/pricebenchmark/`：CPU 人工验证基准，含 `0a04-pricebenchmark.xlsx`（verify.py 默认基准，与旧 jg.xlsx 数据一致）和 `0b5a-pricebenchmark.xlsx`。
-- `database/ultra_crops_llm/`（已删除）：OCR/提示词/模型实验产物已清理；复现实验时重建临时目录即可。
-- `database/*_progress.log`：提取运行日志；批量脚本会追加写入。
-- `database/clean_load.py`：仅对 `extracted/*.json` 清洗、幂等写库、全库去重。
-- `database/build_db.py`：无确认、破坏性地重建空库。
-- `database/cpumem.db`：SQLite 生成数据；当前可能为空。重建、批量入库、修改或删除前必须获得明确许可。
-- `database/verify.py`：CPU 单份提取结果与人工 Excel 的 QA 工具；不是通用数据校验器。
-- `docs/CPU提取管线.md`：当前 CPU 管线、缓存、基准结果和常用命令。
-- `docs/OCR辅助提取实验.md`：OCR 方案的历史实验、结论和未合入的可选路径。
-- `docs/数据库设计文档.md`：全局 ETL/SQLite/MEM 设计与历史记录；注意其中仍包含旧模型、旧 CPU 提示词、`extract.py --real` 等过时描述。
+### 输入、代码与配置
+
+- `价格图片/CPU/`、`价格图片/mem/`、`价格图片/TF/`、`价格图片/其他/`：手工分类的原图。禁止未授权删除、移动、批量改名、提交或外传。
+- `database/extract_cpu.py`：CPU OCR-first 专用 extractor。使用 `numpy`、Pillow、本地 OpenAI 兼容 GLM-OCR 与配置的多模态 LLM。
+- `database/load_cpu.py`：CPU 专用预验证、幂等入库、全库去重、冲突和 Markdown 报告生成器。
+- `database/extract_mem.py`：MEM OCR-first 专用 extractor；整图 OCR/LLM、保留全类目、补齐 `hardware_type`。
+- `database/extract.py`：通用/旧 extractor；整图 LLM，无 OCR，递归所有分类。
+- `database/clean_load.py`：通用/旧 loader；只导入 `database/extracted/*.json`。
+- `database/build_db.py`：破坏性空库重建工具。
+- `database/llm_config.json`：LLM/OCR endpoint、模型、超时等配置，含凭据；不要暴露。
+- `database/cpu_watchlist.json`：通用 extractor 使用的 CPU 型号白名单。当前 CPU 专用路径不读取它，白名单文本内嵌于 `OCR主_指令.txt`；修改型号范围须同步两处。
+
+### 提示词
+
+- `database/prompts/OCR主_指令.txt`：**当前 CPU 生产路径**的完整 OCR-first 指令、JSON 契约、消歧规则和内嵌白名单。
+- `database/prompts/OCR主_指令_MEM.txt`：**当前 MEM 生产路径**的完整 OCR-first 指令及 `hardware_type` 契约；不含 CPU 白名单。
+- `database/prompts/base.txt`、`mem.txt`、`TF.txt`、`其他.txt`：通用/旧路径按父目录装配的提示词。
+- 当前无 `database/prompts/CPU.txt`；旧文档里提到它的部分都是历史描述。
+
+### 运行产物与验证资产
+
+- `database/output_cpu/`：CPU 管线所有默认产物。
+  - `extracted_cpu/*.json`：CPU 最终 JSON、断点续跑检查点。
+  - `crop_cache/*.png`：三段裁剪图缓存。
+  - `ocr_cache/*.md`：OCR HTML 转换成 Markdown 的缓存。
+  - `extract_cpu_progress.log`：追加式提取历史。
+  - `load_cpu_conflicts.json`：CPU importer 异价冲突清单。
+  - `load_cpu_report.md`：CPU importer 人可读报告。
+- `database/output_mem/`：MEM 默认产物目录。
+  - `extracted_mem/*.json`：MEM 提取结果（当前可能为空）。
+  - `ocr_cache/*.md`：整图 OCR 缓存。
+  - 代码会写 `extract_mem_progress.log`，但不能仅凭目录/旧文档假定全量已完成。
+- `database/extracted/`：旧通用路径输出，且是 `clean_load.py` 的唯一输入。
+- `database/conflicts_cpu.json`：旧/历史 CPU 冲突产物；当前 `load_cpu.py` 写到 `output_cpu/load_cpu_conflicts.json`，不要混淆。
+- `database/test_noocr_extract.py`：纯视觉无 OCR 的对比实验，会真实调用 LLM，输出 `output_cpu/extracted_cpu_noocr/` 并添加 `_test_noocr: true`。所有 importer 都不会强制拒绝该标记，**不得误把实验目录传给 loader**。它默认扫描 `crop_cache/*.png`，其中可能包含未接入主管线的 `_LL/_LR` 辅助切块；且 docstring 所称的 `--status` 尚未实现，不能把它当无副作用命令使用。
+- `database/test_crops/`、`llm_ocr_test.md`：OCR/分块测试材料；不是生产输入。
+- `database/pricebenchmark/`：CPU 两期人工基准 Excel。当前 `verify.py` 已删除，文档中提到的旧验证命令不可直接执行；若要重建验证工具，先确认基准口径和需求。
+- `database/cpumem.db`：SQLite 生成数据；当前可能已有 CPU 数据和冲突删行历史。禁止未经授权重建或批量改写。
 
 ## 依赖与运行环境
 
-- Python 3.10+（代码使用 `str | None`、`list[str]` 等现代类型标注）。
+- Python 3.10+（代码使用 `str | None`、`list[str]`）。
 - 标准库：`sqlite3`、`json`、`glob`、`re`、`datetime`、`base64`、`urllib.request`、`concurrent.futures` 等。
-- 外部 Python 依赖：
-  - `openai`：所有 extractor 调用 OpenAI 兼容的多模态 LLM；
-  - `openpyxl`：`verify.py` 读取 Excel 基准；
-  - `numpy`、`Pillow`：`extract_cpu.py` 的图像锚点检测和裁剪。
-- CPU 管线还依赖可用的本地 OpenAI 兼容 OCR 服务（GLM-OCR/llama.cpp）；默认地址由 `llm_config.json` 的 `ocr_base_url` 决定，环境变量 `OCR_BASE_URL` **仅在配置未提供该项时**才作为回退。
+- 外部依赖：
+  - `openai`：所有 extractor 调用 OpenAI 兼容多模态 LLM；
+  - `numpy`、`Pillow`：CPU 裁剪和线检测。
+- CPU/MEM 还依赖可用的 OpenAI 兼容 GLM-OCR 服务；`ocr_base_url` 优先从 `llm_config.json` 取值，环境变量 `OCR_BASE_URL` 仅在配置没有该值时回退使用。
 
-项目暂无 `requirements.txt` / `pyproject.toml`。缺包时按实际需要安装，不要自行引入大型框架、lockfile 或新依赖，除非任务需要且已确认：
+项目没有 `requirements.txt` 或 `pyproject.toml`。缺包时按实际需求安装；不要无确认引入框架、锁文件或大型依赖：
 
 ```bash
-python -m pip install openai openpyxl numpy Pillow
+python -m pip install openai numpy Pillow
 ```
 
-## 提取 JSON 契约
+## JSON 契约
 
-通用与 CPU 输出的主要结构为：
+### CPU 专用结果
 
 ```json
 {
@@ -102,184 +117,195 @@ python -m pip install openai openpyxl numpy Pillow
 }
 ```
 
-- `sheet_date`：报价日期；下游会强制年份为 2026。
-- `source_image`：由各 extractor 添加，且是 loader 的来源幂等删除键；不得随意移除。
-- `product_name`：CPU 专用输出应仅保留型号本体，不能拼入核数、线程、频率或描述文字；内存/存储等产品则必须保留容量、DDR/频率、接口、显存、容量和其他区分规格。
-- `price`：必须是明确的纯数值；不确定、空白、跨行/跨列推断出的价应宁可漏掉也不能补造。`base.txt` 中“区间价取中间值”的旧规则与此真实性原则冲突；处理或修订通用提示词时不得据此生成图片未明确给出的中间价。
-- `price_type`：CPU 常用 `散片`/`原盒`；内存常用 `单条`/`套装`；实际通用输出还可能含保固、国行、全新等标签，但当前 loader 会将未在映射表内的类型折叠为 `默认`。
+- CPU extractor 最终只保留 `category == "CPU"`。
+- `product_name` 只保留型号本体，不能拼核数、线程、频率或描述文字；`F`、`K`、`KF`、无后缀是不同型号。
+- `price_type` 只应为 `散片` / `原盒`。
+- OCR-first CPU 契约把 `数字+****`（如 `480/****`）中的数字视为有效；纯 `****`、空格和不确定格无价。不能把通用 `base.txt` 的“任何星号无效”规则应用到 CPU 专用结果。
 
-MEM 专用输出会额外带：
+### MEM 专用结果
+
+MEM 结果保留图片上所有硬件区块，并附加：
 
 ```json
-{"hardware_type": "DDR3 | DDR4 | DDR5 | SSD | HDD | GPU | MB | PSU | MON | CPU | PERIPH | CARD | OTHER"}
+{
+  "hardware_type": "DDR3 | DDR4 | DDR5 | SSD | HDD | GPU | MB | PSU | MON | CPU | PERIPH | CARD | OTHER"
+}
 ```
 
-该字段当前只存在于 JSON，SQLite schema 与 `clean_load.py` 均不会持久化它。
+- 内存必须保留容量、DDR 代际、频率、时序、套条/单条、颜色/马甲等区分规格；存储保留容量与接口。
+- `hardware_type` 缺失/非法时由代码补齐：显式 DDR 优先，频率 `4000..12000` 推断 DDR5、`800..2133` 推断 DDR4，其余按 category 映射或 `OTHER`。
+- 此字段**当前不入 SQLite**，不能声称数据库已支持 `quotes.hardware_type`。
 
-## 三条提取路径
+### 通用旧结果
 
-### CPU：`database/extract_cpu.py`（当前专用路径）
+通用 JSON 也使用 `sheet_date`、`products`、`source_image`，但可以出现更多类目与价格标签。`clean_load.py::PRICE_TYPE_MAP` 只识别散片/原盒/单条/套装/默认，保固、国行、全新等未映射标签会折叠为 `默认`，因此存在信息损失。
 
-CPU 管线只针对 `价格图片/CPU/` 设计，必须传入图片文件或目录；不带参数只打印用法。`--status` 是唯一会使用默认 CPU 目录的无副作用模式。
+**价格真实性规则：**任何路径都不可补造价格、跨行/跨列/跨区块复制价格或从不确定文本推断。通用 `base.txt` 的“区间价取中间值”旧规则与真实性原则冲突；修改通用提示词时不得据此写入图片未明确给出的中间价。
+
+## CPU 专用管线：`extract_cpu.py`
+
+### 执行模型
 
 ```text
-原始 CPU 图片
-  -> extracted_cpu/<basename>.json 是否存在：存在即跳过
-  -> crop_cpu_image()：三段式、锚点自适应裁剪 -> crop_cache/<basename>.png
-  -> ocr_markdown()：本地 GLM-OCR -> HTML 转 Markdown -> ocr_cache/<basename>.md
-  -> build_joint_prompt()：OCR主_指令.txt + OCR Markdown
-  -> call_llm()：裁剪图 + OCR-first 联合提示词
-  -> 仅保留 category == "CPU"，添加 source_image
-  -> extracted_cpu/<basename>.json
+显式传入 CPU 图片或目录
+  -> output_cpu/extracted_cpu/<basename>.json 是否存在：存在即跳过
+  -> crop_cpu_image()：三段式自适应裁剪 -> output_cpu/crop_cache/<basename>.png
+  -> ocr_markdown()：本地 GLM-OCR -> HTML 表格转 Markdown -> output_cpu/ocr_cache/<basename>.md
+  -> OCR主_指令.txt + OCR Markdown
+  -> 多模态 LLM：裁剪图 + 联合提示词
+  -> 保留 CPU 类目、添加 source_image
+  -> output_cpu/extracted_cpu/<basename>.json
+  -> （人工触发）load_cpu.py -> cpumem.db
 ```
 
-关键事实：
+- 仅 `--status` 会默认扫描 `价格图片/CPU/`；其余运行必须显式传图片或目录。目录扫描可递归。
+- 默认 2 并发，`--workers N` 最大钳制到 6。
+- `--out-dir <目录>` 可将**结果、裁剪、OCR 缓存和进度日志**一并切换到自定义根目录；CPU importer 的 `--out-dir` 需要传同一个根目录中的 `extracted_cpu/`。
+- 三段裁剪通过亮区/长竖线检测横幅和 CPU 区右边界，失败时回退固定比例；该策略针对当前 CPU 报价模板，不保证新模板可用。
+- OCR 使用 `temperature=0`，CPU 的 `max_tokens` 当前硬编码为 16384；MEM 才读取配置中的 `ocr_max_tokens`。输出通常为 HTML 表格；`html_table_to_markdown()` 仅面向当前预期的小写、带引号属性的 HTML，展开 `rowspan`/`colspan` 为 Markdown 管道表格，不是通用 HTML 解析器。OCR 格式异常时可能原样传给后续 LLM，修改前须以真实 OCR 样本核查。
+- OCR 失败、返回空、LLM 失败或 JSON 解析失败都会使该图失败且不写结果；没有生产降级到纯视觉/纯 OCR 的分支。重跑会重试未写结果的图。
+- `call_llm()` 仅对 endpoint 拒绝 `temperature` 重试一次；无通用网络/限流/路由重试。
+- 缓存/结果均以 basename 为键：改裁剪逻辑清对应裁剪缓存；改 OCR 行为清对应 OCR 缓存；改主提示词删对应 JSON。替换同名原图和跨目录同名图会产生陈旧缓存或碰撞。
 
-- `crop_cpu_image()` 检测横幅底部和 CPU 表右边界，再拼接三段裁剪图，以排除右侧硬盘/内存表格对 CPU 提取的干扰；检测失败会回退历史比例。
-- `ocr_markdown()` 用 `temperature=0` 请求 OCR，调用失败或返回空会抛异常；**实际代码没有纯视觉或纯 OCR 降级分支**（提示词以 OCR 为主，OCR 失败即报错，该图计失败，重跑自动重试）。
-- OCR HTML 的 `rowspan`/`colspan` 会在 `html_table_to_markdown()` 展开成 Markdown 管道表格。
-- 当前 CPU 逻辑实际使用 `OCR主_指令.txt`（含白名单），`build_cpu_prompt()`（旧 base.txt + CPU.txt 组装）已删除；不要重建旧提示词路径。
-- 默认 2 并发，`--workers N` 可调整，上限 6；CPU OCR 和 LLM 服务共同承压。
-- `timeout_seconds` 默认 300 秒、`ocr_timeout_seconds` 默认 600 秒（均可在配置中覆盖）；超时是失败，结果文件不会写出，重跑会重试。
-- 当前 OCR-first 提示词规定：含数字的 `数字+****`（例如 `480/****`）可以提取数字部分；纯 `****` 才是无价。这与 `base.txt` 的通用星号规则不同，不能混用两套契约。
-- 裁剪、OCR、最终 JSON 都按**文件 basename**缓存。改裁剪逻辑后需要清对应 `crop_cache/`；改 OCR 行为后需要清对应 `ocr_cache/`；改 CPU 主提示词后需要删对应 `extracted_cpu/` JSON 才会重新调用。替换同名源图或不同目录同名图也会误复用缓存。
+### 未接入的分块代码
 
-### MEM：`database/extract_mem.py`
+`split_table_blocks()`、`detect_vlines()` 和 `_find_split()` 已定义，可生成 `_LL.png` / `_LR.png` 子表裁切；但当前 `extract_one()` **没有调用 `split_table_blocks()`**。实际生产 OCR/LLM 接收的是单张三段裁剪图，不是 LL/LR 块。不要因文档声称 S2b 已运行而清理/依赖分块缓存，除非先实现并验证调用接入。
+
+## MEM 专用管线：`extract_mem.py`
 
 ```text
-价格图片/mem/ 顶层图片
-  -> base.txt + mem.txt
-  -> 整图发送给 LLM（无裁剪、无 CPU 白名单）
-  -> 保留图中全部类目，不只保留内存
-  -> infer_hardware_type() 补齐/纠正 hardware_type
-  -> extracted_mem/<basename>.json
+显式传入 MEM 图片或目录
+  -> output_mem/extracted_mem/<basename>.json 是否存在：存在即跳过
+  -> 原整图 -> ocr_markdown() -> output_mem/ocr_cache/<basename>.md
+  -> OCR主_指令_MEM.txt + OCR Markdown
+  -> 多模态 LLM：原整图 + 联合提示词
+  -> 保留全部 category，补齐 hardware_type
+  -> output_mem/extracted_mem/<basename>.json
+  -> （当前无正式 MEM loader）
 ```
 
-- 默认 10 并发，支持 `--file`、`--status`；扫描是非递归的顶层 `png/jpg/jpeg` glob。
-- `hardware_type` 先接受 LLM 合法值；缺失/非法时，内存优先按显式 `DDR3/4/5` 识别，之后按频率 `4000..12000 -> DDR5`、`800..2133 -> DDR4` 兜底，其他类目根据 `category` 映射。
-- MEM 图可能同时包含内存、SSD、主板、显卡、显示器等，不能在 extractor 中过滤为仅“内存”。
-- 结果目前不进入 `clean_load.py`。
+- 与 CPU 一样，除 `--status` 外必须显式传目标；目录可递归扫描，支持 PNG/JPG/JPEG。
+- 不裁剪：MEM 图通常是近方形、多区块报价单，必须保留内存、SSD、主板、显卡、显示器等全部区域。
+- 默认 2 并发、上限 6，支持 `--workers` 与 `--out-dir`。
+- OCR 也硬依赖；MEM 从配置读取 `ocr_max_tokens`（默认 16384），以避免输出截断/重复退化。OCR-first 结果目前尚无成熟人工基准，不能将批量输出视为已验证生产数据。
+- 输出/缓存同样 basename 键控，提示词变更需删对应 JSON，OCR 行为变更需删对应 OCR 缓存。
+- 当前结果目录可能为空而 OCR 缓存已存在；缓存存在不代表 LLM 成功或数据已入库。
 
-### 通用：`database/extract.py`
+## CPU 数据导入：`load_cpu.py`
 
-- 递归扫描 `价格图片/` 下所有 `png/jpg/jpeg`，默认 10 并发，输出平铺到 `extracted/`。
-- 按图片父目录拼接 `base.txt + <父目录>.txt`；缺少分类提示词时只使用 `base.txt`。
-- 每个结果名是 `extracted/<basename>.json`，已存在即跳过；`--status` 也按 basename 比较。
-- 代码当前只要 `cpu_watchlist.json` 启用就会为**所有分类**追加 CPU 白名单，而不是仅 CPU 图片；这是现状/缺陷，改动时需要专门验证非 CPU 提示词与输出。
-- 通用路径用 `base.txt`（extract.py / extract_mem.py 引用）；CPU 管线的 `CPU.txt` 已删除（其规则已并入 `OCR主_指令.txt`）。
+`load_cpu.py` 是 CPU 提取后的正式人工触发入库步骤，默认目标为 `database/output_cpu/extracted_cpu/`。
 
-所有 extractor 都处理模型偶发的 Markdown 代码围栏，并在 endpoint 拒绝 `temperature` 参数时重试一次。它们不会为一般网络、限流、路由异常作额外重试；失败项应保留失败状态、检查服务后重跑，绝不可伪造成功。
+1. 读取一份 JSON、一个目录或默认目录；`--out-dir` 指向 CPU 自定义输出根目录。
+2. 对每条记录预验证：顶层 `source_image` 非空、日期可解析、型号非空、价格可转数字且在 `1..200000`、价格不含 `*`/`X`、`price_type` 规范化后为散片/原盒、`category` 非空。
+3. 至少有一条有效记录才删除相同 `source_image` 的旧 quotes，避免空/全坏 JSON 清空旧来源；然后插入 products/dates/quotes。
+4. products 以 `clean_load.norm_product_key()` 的 `vendor-型号` 键 insert-once；CPU importer 无论原 category 写什么都新建为 `CPU`。展示名会尝试去除 CPU 规格后缀，但 product key 在该清理前生成，措辞变化仍可能分裂产品键。
+5. 对**整个共享数据库**执行 `(date_key, product_key, price_type)` 去重：同价保留最早 id，异价保留最早 id、删除后者并写 `output_cpu/load_cpu_conflicts.json`。保留行的 source 在冲突记录中目前为 `null`，溯源不完整。
+6. 写 `output_cpu/load_cpu_report.md`。报告中的“入库价格记录”是预验证通过/尝试写入数，不能等同于去重后保留的 quote 数。
 
-## 清洗、SQLite 与入库
+风险与约束：
 
-### 表结构
+- 去重是跨来源、全库、破坏性的；它可能删除同日同型号同类型的有效不同报价。当前冲突记录的保留行 `source` 为 `null`，不能完整追溯赢家来源。不得未经授权反复全量导入或把冲突当作已解决。
+- `load_cpu.py --status` 的“价格记录”查询的是所有具有 `source_image` 的 quotes，不严格限定 CPU；混入其他 importer 数据后会偏大。
+- CPU 当前 SQLite 状态、导入报告和冲突文件是业务数据，不要用测试命令重跑 import 覆盖它们。
 
-`database/build_db.py` 与 `clean_load.py::_create_tables()` 定义：
+## 通用旧路径：`extract.py` / `clean_load.py`
 
-| 表 | 用途 | 关键字段 |
-| --- | --- | --- |
-| `products` | 产品维表 | `product_key` PK、`display_name`、`category`、`vendor` |
-| `dates` | 日期维表 | `date_key` PK、`year`、`month`、`day`、`weekday` |
-| `quotes` | 长表价格事实 | `id`、`product_key`、`date_key`、`price`、`price_type`、`source_image` |
+### 通用 extractor
+
+- 递归扫描 `价格图片/` 所有分类，固定 10 并发，整图直送 LLM，无 OCR。
+- 按父目录合成 `base.txt + <父目录>.txt`；不存在对应 prompt 时只用 base。
+- 当 `cpu_watchlist.json` 的 `enabled` 为真时，它会对**所有类别**拼接 CPU 白名单，不只 CPU 目录；这是当前缺陷，改动时要检查非 CPU 提示词。
+- 输出平铺到 `database/extracted/<basename>.json`，同名即跳过；该路径与专用 CPU/MEM 结果重叠但不能混同。
+
+### 通用 loader
+
+- 仅处理 `database/extracted/*.json`，不处理 output_cpu/output_mem。
+- 按 `source_image` 先删除旧 quotes，再对每项逐条验证并插入；与 CPU importer 不同，它在验证各条产品**之前**删除来源旧记录，故一个日期可读但 products 全坏的 JSON 可清空同来源旧数据。
+- 复用 vendor/category/price type 映射；空/未知分类才调用 `guess_category()`。兜底顺序先 CPU、后通用容量/SSD、最后 DDR/内存，因此 `DDR5 16G` 一类缺分类内存可能被误判为 SSD。
+- `norm_date()` 支持带年份的 `YYYY-M-D`（`-` `/` `.`）和 `M月D日`，年份强制 2026；**不支持**旧文档宣称的短点号 `9.16`。
+- `--force-conflicts` 没有实际功能：`dedupe_quotes()` 始终删除冲突后行，flag 只影响消息。
+- 虽有 `_create_tables()` / `load_db()` 自动建表分支，`main()` 在 DB 不存在时会提前返回，CLI 不能自动建库。首次 generic 导入须先获得授权并执行 `build_db.py`，或先修复行为。
+
+## SQLite schema（当前代码定义）
+
+`build_db.py` 与 `clean_load.py::_create_tables()` 定义：
+
+| 表 | 字段 |
+| --- | --- |
+| `products` | `product_key` PK、`display_name`、`category`、`vendor` |
+| `dates` | `date_key` PK、`year`、`month`、`day`、`weekday` |
+| `quotes` | `id`、`product_key`、`date_key`、`price`、`price_type`、`source_image` |
 
 索引：`idx_q_prod_date(product_key, date_key)`、`idx_p_cat_vendor(category, vendor)`。
 
-`quotes` 的一条记录代表一种价格类型；同一 CPU 的散片和原盒应是两行。`source_image` 是可追溯性要求，不要删除。
+- schema 没有 `hardware_type`，没有 source/vendor/category/price-type 独立维表，也没有 `(date_key, product_key, price_type)` 数据库唯一约束；去重完全依赖 Python 脚本。
+- `products` 只在产品键首次出现时插入；后续提取不会修正既有展示名、分类或品牌。`norm_product_key()` 只统一大小写、空白/下划线和连字符，未全面规范型号别名、拼写、后缀、容量格式或品牌语义，相近型号写法仍可能分裂为多个产品。
+- 外键约束只在部分既有 DB 连接启用 `PRAGMA foreign_keys=ON`，新建路径不一致。
+- `build_db.py` 会删掉整个现有 `cpumem.db`，绝不能作为普通“初始化检查”执行。
 
-### 规范化与幂等行为
+## 测试、验证与质量边界
 
-- `norm_date()` 接受带年份的 `YYYY-M-D`（分隔符可为 `-` `/` `.`）和中文 `M月D日`，将年份强制为 2026；当前**不支持**无年份点号日期如 `9.16`，尽管旧文档写过支持。
-- `VENDOR_MAP`、`CATEGORY_MAP`、`PRICE_TYPE_MAP` 是集中式映射；新增已知别名优先最小改动补到映射表，而不是散落特判。
-- `norm_product_key()` 生成 `小写规范化 vendor + '-' + 小写连字符化 product_name`。它在 CPU 展示名清洗前运行，因此 CPU 提取措辞中的规格差异仍会令 `product_key` 分裂；调整键策略前必须考虑历史数据迁移。
-- 价格必须能转为数值，且在 `1..200000`；`<=0`、`*`/`X`、超范围或无效价格不入库。注意当前检查只看 JSON 内的 `price` 值；若上游已把有标记的原始值转成纯数字，loader 无法恢复该标记。
-- 分类为空/未知才会调用 `guess_category()`。其顺序先匹配 CPU、后匹配通用容量/SSD、最后匹配 DDR/内存，因此类似带 `16G` 和 `DDR5` 的内存若分类丢失，存在被误归为 SSD 的风险。
-- 对每一个输入 JSON，`process_file()` 先删除 `quotes.source_image == source_image` 的旧记录，再插入新记录，形成来源级幂等。
-- 这里的来源键也只有 basename；不同目录同名图一旦合并入同一输入目录，会互相删除/覆盖记录。
-
-### 去重与冲突
-
-全库 `dedupe_quotes()` 按 `(date_key, product_key, price_type)` 处理：
-
-- 同价：保留最早记录，删除后续；
-- 异价：保留最早记录，删除后续，并把冲突写入 `database/conflicts.json`。
-
-`--force-conflicts` **当前没有实际功能**：它只改变提示文字，`dedupe_quotes()` 依然会删除异价后续行，也不会回填冲突。不要在说明、测试或实现中把它说成已支持“强制保留”。
-
-### 建库危险点
-
-- `build_db.py` 会直接删除已有 `database/cpumem.db` 后新建空表，**没有交互确认**；调试、测试、修复中绝不可随手执行。
-- `load_db()` 有建库辅助路径，但 `clean_load.py::main()` 在 DB 不存在时会提前返回，故正常 CLI 下自动建库不可达。首次实际运行需要先获授权后执行 `build_db.py`，或先修复该行为并更新文档/测试。
-- 外键只在已有 DB 的 `load_db()` 分支启用 `PRAGMA foreign_keys = ON`，新建连接的实际强制性并不一致。
-
-## CPU 验证与实验质量
-
-`verify.py` 是针对 CPU 人工基准的独立只读工具：
+- 没有自动化测试、CI 或现存通用验证脚本。`database/verify.py` 已删除；旧文档中以它验证 Excel 的命令不可直接运行。
+- `database/pricebenchmark/` 中保留两期 CPU Excel 基准。文档记录历史 CPU 试验结果：0a04 为 132/132、0b5a 为 141/148（95.3%）；这不是对当前全量结果的自动保证。
+- CPU `output_cpu/extract_cpu_progress.log` 当前可记录 316/316 提取完成，但进度日志是追加历史；结果保留数、导入报告覆盖范围、DB 保留 quote 数和 OCR/LLM 正确性是不同概念，不能用其中任一个代替质量验证。
+- `load_cpu.py` 的预验证只验证字段格式/范围，不验证白名单、真实行列对应、供应商/类别语义或模型准确性；冲突文件是待人工审阅队列，不是自动修复。
+- MEM OCR-first 路径尚无已建立的人工 benchmark；现有 OCR 测试材料可见重复、错位/错误型号风险。MEM 批量数据未建立质量门槛前，不得宣称已可生产入库。
+- Python 修改后至少运行：
 
 ```bash
-python database/verify.py database/extracted_cpu/<结果>.json
+python -m py_compile database/build_db.py database/clean_load.py database/extract.py database/extract_cpu.py database/extract_mem.py database/load_cpu.py database/test_noocr_extract.py
 ```
 
-- 默认基准是 `database/pricebenchmark/0a04-pricebenchmark.xlsx`；读取首个 worksheet。
-- 它使用验证专用 `norm()`：保留 CPU `F`/`K`/`KF` 区别，处理少数人工笔误与规格后缀。不要把这套规则直接拿去替代全品类数据库键规范化。
-- 报告 `类型错`、`数值错`、`漏提`、`多提`、`清单外`。基准仅对应某个报价期，只能对同一期图片验证；跨期运行会产生大量假错误。
-- `0b5a-pricebenchmark.xlsx` 不是 CLI 参数，需要在 Python 中临时重设 `verify.XLSX_PATH`，或在改造工具后再提供正式参数；不可假设当前 CLI 已支持 `--benchmark`。
-- 当前提取进度应使用各脚本的 `--status` 实时查看；现有 `*_progress.log` 是多次单图/实验运行的追加历史，不能据其中某条 `总进度` 直接推断全量生产完成度。
-- CPU 提示词、OCR/裁剪、白名单、模型调用或验证归一化发生改动时，至少验证 0a04 基准，并用另一张不同期/版式图片做泛化核查。文档记录当前 OCR-first 管线在 0a04 达到 132/132、0b5a 达到 141/148；这是实验结果，不代表全量生产数据已验证。
+不要把该检查生成的 `database/__pycache__/` 作为功能变更提交。
 
 ## 常用命令
 
 从仓库根目录执行：
 
 ```bash
-# 仅 Python 语法检查；不会调用 OCR/LLM，不会修改业务数据
-python -m py_compile database/build_db.py database/clean_load.py database/extract.py database/extract_cpu.py database/extract_mem.py database/verify.py
-
-# 只查看进度；不会发送图片或写数据库
+# 无副作用：查看 CPU/MEM/通用提取进度与 CPU 库状态
 python database/extract_cpu.py --status
 python database/extract_mem.py --status
 python database/extract.py --status
+python database/load_cpu.py --status
 
-# CPU：单图或指定目录。真实调用本地 OCR + LLM，会产生/复用缓存并写结果
+# 无副作用：Python 语法检查
+python -m py_compile database/build_db.py database/clean_load.py database/extract.py database/extract_cpu.py database/extract_mem.py database/load_cpu.py database/test_noocr_extract.py
+
+# CPU：真实调用 OCR + LLM，写 output_cpu/（须先授权）
 python database/extract_cpu.py 价格图片/CPU/example.png
 python database/extract_cpu.py 价格图片/CPU --workers 4
+python database/extract_cpu.py 价格图片/CPU --out-dir ./my_output
 
-# MEM：单图或整个 mem 目录。真实调用 LLM、写 extracted_mem/
-python database/extract_mem.py --file example.png
-python database/extract_mem.py
+# CPU：真实修改 SQLite、全库去重并写报告/冲突（须先授权）
+python database/load_cpu.py
+python database/load_cpu.py database/output_cpu/extracted_cpu/example.json
+python database/load_cpu.py --out-dir ./my_output
 
-# 通用：单图或全量递归。真实调用 LLM、写 extracted/
+# MEM：真实调用 OCR + LLM，写 output_mem/；当前没有 load_mem.py（须先授权）
+python database/extract_mem.py 价格图片/mem/example.png
+python database/extract_mem.py 价格图片/mem --workers 4
+python database/extract_mem.py 价格图片/mem --out-dir ./my_output
+
+# 通用旧路径：真实调用 LLM / 修改通用 DB 数据（须先授权）
 python database/extract.py --file TF/example.png
 python database/extract.py
-
-# CPU 提取结果与默认人工基准比对（只读）
-python database/verify.py database/extracted_cpu/<result>.json
-
-# 清洗并写入数据库；只读取 extracted/*.json，会删旧 source_image quote、去重，可能生成 conflicts.json
 python database/clean_load.py
 
-# 破坏性：无提示删除后重建 cpumem.db；必须先明确确认
+# 破坏性：删除后重建 cpumem.db（须明确授权）
 python database/build_db.py
+
+# 实验：真实调用 LLM，非生产输出；不要传给 loader
+python database/test_noocr_extract.py database/output_cpu/crop_cache --workers 2 --limit 10
 ```
 
-不要使用旧文档中的 `python extract.py --real`：当前 `extract.py` 默认就是真实 LLM 调用，且没有 `--real` 开关。
+不要执行旧文档里的 `extract.py --real`、`extract_mem.py --file ...`、`load_mem.py`、`verify.py` 或 `CPU.txt` 工作流：它们与当前代码不匹配或文件不存在。
 
-## 安全、数据与 Git 约束
+## 维护要求
 
-1. **先检查工作区。** 开始任何任务前执行 `git status --short`。工作区可能含用户未提交的配置、缓存、结果、日志和数据库改动；只改任务相关文件，不覆盖、暂存、回退或删除无关内容。
-2. **禁止未授权的副作用。** 批量 CPU/MEM/通用提取会消耗配额、耗时，并将图片发送给配置服务；批量入库会修改 SQLite/冲突文件；建库、删除/移动/批量重命名文件同样有影响。执行前说明影响并取得用户明确许可。
-3. **保护原始图片与凭据。** `价格图片/` 可能敏感；`llm_config.json` 包含敏感凭据。不得打印、复制、提交、上传或在回复中泄露它们。
-4. **Git 忽略规则不足。** 当前 `.gitignore` 只忽略原始图片和少数系统文件；`cpumem.db`、`llm_config.json`、缓存、提取 JSON、日志、Excel 基准、实验产物都可能被追踪或意外暂存。新增生成物或处理密钥时应评估补充忽略/样例配置策略，但不要擅自删除已有本地文件。
-5. **缓存/结果不是无害临时文件。** 当前仓库可能保留 `crop_cache/`、`ocr_cache/`、`extracted_*`、`ultra_crops_llm/` 和 benchmark；不要在无明确任务时清空。若任务确实要求重提，按逻辑层只清理相关单图/单目录缓存，并先确认影响。
-6. **价格真实性优先。** 不得因 LLM 或 OCR 不确定而补造价格；不得跨行、跨列、跨子表复制价格。宁可漏提，也不能把错误价格放进下游数据库。
-
-## 代码风格与改动要求
-
-- 延续脚本式结构：模块级路径常量、简短中文 docstring、轻量 `sys.argv` 解析、`main()` 和 `if __name__ == "__main__":` 入口。
-- 路径必须从 `__file__` 推导，不依赖启动时工作目录。
-- 标准库优先；不要为了简单任务引入框架。
-- 提取策略优先外置于 `database/prompts/` 或 JSON 配置；代码负责安全、装配、缓存、调用和格式补救。
-- 修改 CPU 主提示词时改 `OCR主_指令.txt`（含内联白名单）；`CPU.txt` 已删除（规则已并入 `OCR主_指令.txt`）。
-- 修改通用/MEM 提示词、类别/品牌/价格类型枚举时，联动检查 prompts、`clean_load.py` 映射、SQLite 历史兼容性、样例 JSON 和文档。
-- Python 改动后至少运行 `py_compile`；不要把由检查产生的 `__pycache__/` 当作功能变更提交。
-- 变更 CPU 裁剪、OCR HTML/Markdown 转换、提示词或白名单，必须结合人工基准运行 `verify.py`，并清除受影响的 CPU 缓存层后才做真实重提。
-- 若修复文档—代码不一致，优先修行为并补验证，然后同步更新相关文档和本文件；不要仅改文档掩盖现状。
+- 路径从 `__file__` 推导；沿用脚本式模块常量、简短中文 docstring、轻量 `sys.argv`、`main()` + `if __name__ == "__main__":`。
+- 修改 CPU 提示词应编辑 `OCR主_指令.txt`；修改 MEM 提示词应编辑 `OCR主_指令_MEM.txt`。不要单改 legacy `base.txt`/`mem.txt` 后误认为 OCR-first 专用路径会变化。
+- 修改 CPU 裁剪、OCR HTML/Markdown 转换、OCR token/超时、白名单或提示词后，按影响层只清相应缓存/结果，并先以代表图做真实重提验证；清缓存与重提会有副作用，需授权。
+- 变更 loader、产品键、日期/分类/价格类型映射、去重策略或 schema 前，必须考虑已入库历史、`source_image` 幂等、CPU/通用路径共享 DB、冲突报告和数据迁移。
+- 对 MEM 入库的实现必须同时设计 schema migration、`hardware_type` 持久化、全类目合法 price_type、来源冲突策略与测试/人工基准；不得仅依照当前超前的 MEM 文档添加调用入口。
+- 若修复文档与代码不一致，应优先修复/验证行为，再同步更新相关 docs 和本文件；不要只改文档掩盖实现状态。
