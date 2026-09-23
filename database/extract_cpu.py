@@ -280,17 +280,15 @@ def html_table_to_markdown(html: str) -> str:
     return '\n'.join(lines)
 
 
-def ocr_markdown(img_path: str) -> str:
-    """调用 llama.cpp GLM-OCR，返回 Markdown 格式的表格转写文本。
-    OCR 输出确定性与图片绑定（同图同输出），结果缓存到 ocr_cache/。
+def _ocr_image_to_md(image_path: str, cache_name: str) -> str:
+    """对单张图片调用 llama.cpp GLM-OCR，返回 Markdown 格式的表格转写文本。
+    OCR 输出确定性与图片绑定（同图同输出），结果按 cache_name 缓存到 ocr_cache/。
     服务不可用/返回空时抛出 RuntimeError（提示词以 OCR 为主，无 OCR 无法提取）。"""
-    name = os.path.splitext(os.path.basename(img_path))[0]
-    cache_path = os.path.join(OCR_CACHE_DIR, name + ".md")
+    cache_path = os.path.join(OCR_CACHE_DIR, cache_name + ".md")
     if os.path.exists(cache_path):
         with open(cache_path, encoding="utf-8") as f:
             return f.read()
-    crop_path = crop_cpu_image(img_path)
-    with open(crop_path, "rb") as f:
+    with open(image_path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode()
     try:
         import urllib.request
@@ -314,13 +312,36 @@ def ocr_markdown(img_path: str) -> str:
         r = json.loads(urllib.request.urlopen(req, timeout=ocr_timeout).read())
         text = (r["choices"][0]["message"]["content"] or "").strip()
     except Exception as e:
-        raise RuntimeError(f"OCR 服务调用失败（{name[:16]}）: {e}")
+        raise RuntimeError(f"OCR 服务调用失败（{cache_name[:24]}）: {e}")
     if not text:
-        raise RuntimeError(f"OCR 返回空内容（{name[:16]}）")
+        raise RuntimeError(f"OCR 返回空内容（{cache_name[:24]}）")
     md = html_table_to_markdown(text)
     with open(cache_path, "w", encoding="utf-8") as f:
         f.write(md)
     return md
+
+
+def ocr_markdown(img_path: str) -> str:
+    """对 LL/LR 两个分块图分别调用 GLM-OCR，合并为带左右子表标注的 Markdown。
+
+    分块图来自 split_table_blocks()（裁剪图的表级竖向分块）：
+      LL = "intel 处理器" 表（老款 + 11~14 代），LR = "intel 15/14 代" 表 + AMD。
+    分块后每块更窄、文字有效分辨率更高，OCR 误识更少；两块的缓存键为
+    <图片名>_LL.md / <图片名>_LR.md。
+    报价日期不在分块图内（横幅随分块被排除），sheet_date 按提示词契约
+    从原图标题提取（call_llm 随消息附带完整裁剪图，横幅在其中）。
+    合并格式与提示词【OCR 表格结构说明】的左/右子表约定一致。"""
+    name = os.path.splitext(os.path.basename(img_path))[0]
+    crop_path = crop_cpu_image(img_path)
+    blocks = split_table_blocks(crop_path)
+    md_ll = _ocr_image_to_md(blocks["LL"], name + "_LL")
+    md_lr = _ocr_image_to_md(blocks["LR"], name + "_LR")
+    return (
+        "【左子表（intel 老款 + 11~14 代处理器）】\n"
+        + md_ll
+        + "\n\n【右子表（intel 15/14 代（U 系）处理器 + AMD）】\n"
+        + md_lr
+    )
 
 
 def build_joint_prompt(ocr_md: str) -> str:

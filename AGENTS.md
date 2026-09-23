@@ -66,8 +66,8 @@
 
 - `database/output_cpu/`：CPU 管线所有默认产物。
   - `extracted_cpu/*.json`：CPU 最终 JSON、断点续跑检查点。
-  - `crop_cache/*.png`：三段裁剪图缓存。
-  - `ocr_cache/*.md`：OCR HTML 转换成 Markdown 的缓存。
+  - `crop_cache/*.png`：三段裁剪图缓存（`<basename>.png`）+ LL/LR 子表分块缓存（`<basename>_LL.png` / `_LR.png`）。
+  - `ocr_cache/*.md`：分块 OCR 结果（`<basename>_LL.md` / `_LR.md`，已转 Markdown）。
   - `extract_cpu_progress.log`：追加式提取历史。
   - `load_cpu_conflicts.json`：CPU importer 异价冲突清单。
   - `load_cpu_report.md`：CPU importer 人可读报告。
@@ -77,7 +77,7 @@
   - 代码会写 `extract_mem_progress.log`，但不能仅凭目录/旧文档假定全量已完成。
 - `database/extracted/`：旧通用路径输出，且是 `clean_load.py` 的唯一输入。
 - `database/conflicts_cpu.json`：旧/历史 CPU 冲突产物；当前 `load_cpu.py` 写到 `output_cpu/load_cpu_conflicts.json`，不要混淆。
-- `database/test_noocr_extract.py`：纯视觉无 OCR 的对比实验，会真实调用 LLM，输出 `output_cpu/extracted_cpu_noocr/` 并添加 `_test_noocr: true`。所有 importer 都不会强制拒绝该标记，**不得误把实验目录传给 loader**。它默认扫描 `crop_cache/*.png`，其中可能包含未接入主管线的 `_LL/_LR` 辅助切块；且 docstring 所称的 `--status` 尚未实现，不能把它当无副作用命令使用。
+- `database/test_noocr_extract.py`：纯视觉无 OCR 的对比实验，会真实调用 LLM，输出 `output_cpu/extracted_cpu_noocr/` 并添加 `_test_noocr: true`。所有 importer 都不会强制拒绝该标记，**不得误把实验目录传给 loader**。它默认扫描 `crop_cache/*.png`，其中包含主管线的 LL/LR 分块图（`_LL/_LR`），会把子表切块当输入处理；且 docstring 所称的 `--status` 尚未实现，不能把它当无副作用命令使用。
 - `database/test_crops/`、`llm_ocr_test.md`：OCR/分块测试材料；不是生产输入。
 - `database/pricebenchmark/`：CPU 两期人工基准 Excel。当前 `verify.py` 已删除，文档中提到的旧验证命令不可直接执行；若要重建验证工具，先确认基准口径和需求。
 - `database/cpumem.db`：SQLite 生成数据；当前可能已有 CPU 数据和冲突删行历史。禁止未经授权重建或批量改写。
@@ -150,9 +150,12 @@ MEM 结果保留图片上所有硬件区块，并附加：
 显式传入 CPU 图片或目录
   -> output_cpu/extracted_cpu/<basename>.json 是否存在：存在即跳过
   -> crop_cpu_image()：三段式自适应裁剪 -> output_cpu/crop_cache/<basename>.png
-  -> ocr_markdown()：本地 GLM-OCR -> HTML 表格转 Markdown -> output_cpu/ocr_cache/<basename>.md
-  -> OCR主_指令.txt + OCR Markdown
-  -> 多模态 LLM：裁剪图 + 联合提示词
+  -> split_table_blocks()：两级左右分块到子表粒度（LL/LR）
+     -> output_cpu/crop_cache/<basename>_LL.png / _LR.png
+  -> ocr_markdown()：对 LL/LR 两块分别调用本地 GLM-OCR，HTML 表格转 Markdown，
+     按【左子表】/【右子表】标注合并 -> output_cpu/ocr_cache/<basename>_LL.md / _LR.md
+  -> OCR主_指令.txt + 合并后的 OCR Markdown
+  -> 多模态 LLM：完整裁剪图（含横幅日期）+ 联合提示词
   -> 保留 CPU 类目、添加 source_image
   -> output_cpu/extracted_cpu/<basename>.json
   -> （人工触发）load_cpu.py -> cpumem.db
@@ -167,9 +170,16 @@ MEM 结果保留图片上所有硬件区块，并附加：
 - `call_llm()` 仅对 endpoint 拒绝 `temperature` 重试一次；无通用网络/限流/路由重试。
 - 缓存/结果均以 basename 为键：改裁剪逻辑清对应裁剪缓存；改 OCR 行为清对应 OCR 缓存；改主提示词删对应 JSON。替换同名原图和跨目录同名图会产生陈旧缓存或碰撞。
 
-### 未接入的分块代码
+### 分块 OCR 与合并（已接入）
 
-`split_table_blocks()`、`detect_vlines()` 和 `_find_split()` 已定义，可生成 `_LL.png` / `_LR.png` 子表裁切；但当前 `extract_one()` **没有调用 `split_table_blocks()`**。实际生产 OCR/LLM 接收的是单张三段裁剪图，不是 LL/LR 块。不要因文档声称 S2b 已运行而清理/依赖分块缓存，除非先实现并验证调用接入。
+`split_table_blocks()`、`detect_vlines()`、`_find_split()` 生成 `_LL.png` / `_LR.png` 子表裁切，**已被 `ocr_markdown()` 调用**：OCR 的对象是两个分块图，不再整张裁剪图。
+
+- `_ocr_image_to_md(image_path, cache_name)`：单图 OCR 通道（缓存 → POST → `html_table_to_markdown` → 按 `cache_name` 写缓存）；`ocr_markdown()` 负责分块调度与合并。
+- 缓存键为 `<basename>_LL.md` / `<basename>_LR.md`；任一块失败/为空 → `RuntimeError`（消息带 `_LL`/`_LR`），该图失败、不写缓存、不降级。
+- **合并方式**：纯文本拼接，两块各带一行标注头（【左子表（intel 老款 + 11~14 代处理器）】/【右子表（intel 15/14 代（U 系）处理器 + AMD）】），两表保持独立；不做表格解析、不跨块并表（行数与 colspan 无法可靠对齐，强行并表会错位串价）。
+- **送 LLM 方式**：`build_joint_prompt(merged_md)` = `OCR主_指令.txt` 全文 + 合并 Markdown；`call_llm()` 发一条 user 消息、两个 content —— 完整裁剪图（base64，含横幅日期）+ 上述文本。`sheet_date` 按契约从原图标题读取，**横幅不在分块图内**，因此完整裁剪图必须继续随消息发送。
+- 分块图含 `_LL/_LR` 文件；`test_noocr_extract.py` 默认扫描 `crop_cache/*.png`，会包含这些分块图。
+- 该接入已完成代码与离线逻辑验证（缓存命中/合并/失败语义）；**分块对比整图 OCR 的量化收益尚未用真实链路 + 人工基准复验**。
 
 ## MEM 专用管线：`extract_mem.py`
 

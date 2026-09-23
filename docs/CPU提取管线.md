@@ -15,7 +15,8 @@ CPU 提取与其他类目（mem / TF / 其他）**完全独立**，入口是 `da
   → S1 断点续跑检查                    # extracted_cpu/ 已有结果 JSON 则跳过
   → S2 三段式锚点裁剪 crop_cpu_image() # 像素检测表格线，逐图自适应，缓存 crop_cache/
   → S2b 表级竖向分块 split_table_blocks() # 两级左右分块到子表粒度（LL/LR），缓存 crop_cache/<图片名>_LL/_LR.png
-  → S3 OCR 通道 ocr_markdown()        # llama.cpp GLM-OCR → HTML → Markdown，缓存 ocr_cache/
+  → S3 OCR 通道 ocr_markdown()        # 对 LL/LR 两块分别 llama.cpp GLM-OCR → HTML → Markdown，
+                                       # 按【左子表】/【右子表】标注合并，缓存 ocr_cache/<图片名>_LL|_LR.md
   → S4 提示词组装 build_joint_prompt() # prompts/OCR主_指令.txt + OCR Markdown（OCR 为主、图为辅）
   → S5 LLM 提取 call_llm()            # 裁剪图 + 提示词 → JSON
   → S6 后处理过滤 + 落盘               # 只保留 category=="CPU"，附 source_image
@@ -71,8 +72,9 @@ extracted_cpu/<图片名>.json           # 输出：每张图一份 JSON（断�
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ 步骤 S3：OCR 通道（ocr_markdown()，缓存 ocr_cache/）               │
-│  ocr_cache/<图片名>.md 已存在？ → 是则直接复用                     │
-│  否则：裁剪图 base64 → POST llama.cpp /v1/chat/completions        │
+│  对 S2b 的两个分块图分别 OCR（各自独立缓存 _LL.md / _LR.md）：       │
+│  ocr_cache/<图片名>_LL.md 已存在？ → 是则该块直接复用               │
+│  否则：分块图 base64 → POST llama.cpp /v1/chat/completions        │
 │    model=glm-ocr（127.0.0.1:8080）                                │
 │    prompt = "识别图片中的所有文字，输出为Markdown格式"               │
 │    temperature=0，max_tokens=16384                                 │
@@ -83,6 +85,8 @@ extracted_cpu/<图片名>.json           # 输出：每张图一份 JSON（断�
 │  失败/返回空 → RuntimeError（"OCR 服务调用失败"），该图计失败        │
 │  特性：数字识别零错误（0a04 基准 64/64）、"新/少/在途"标注保留、     │
 │        "****" 异常标记保留；偶发型号名误识（如 I7 13700I）          │
+│  两块 OCR 结果按【左子表】/【右子表】标注合并为一段 Markdown         │
+│  （纯文本拼接，不做表格解析/跨块并表，见 3.3.1）                    │
 └──────────────────────────┬──────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
@@ -215,18 +219,44 @@ cut point 均相对分界竖线偏移 +2px，落在表间隙内（表内信息�
 分块产物前缀命名平铺缓存到 `crop_cache/`（`<图片名>_LL.png` / `<图片名>_LR.png`，与第一层裁剪图同目录，
 无子目录层级）；第二层切分为纯内存中间操作，不落盘。改分块逻辑后需手动清空对应 `_LL/_LR` 文件。
 
-### 3.3 OCR 通道（`ocr_markdown()` + `html_table_to_markdown()`）
+### 3.3 OCR 通道（`ocr_markdown()` + `_ocr_image_to_md()` + `html_table_to_markdown()`）
 
+- **OCR 对象是 S2b 的两个分块图（LL/LR），不是整张裁剪图**：`ocr_markdown()` 先做三段裁剪、`split_table_blocks()` 分块，再对两块分别 OCR，最后合并。分块后每块更窄、文字有效分辨率更高，型号后缀与标注的误识更少；
 - **部署**：GLM-OCR（GGUF Q8_0）经 llama.cpp 部署在 `http://127.0.0.1:8080`（环境变量 `OCR_BASE_URL` 可覆盖），OpenAI 兼容接口 `/v1/chat/completions`；
 - **Prompt**：`识别图片中的所有文字，输出为Markdown格式`（实测该模型无论措辞如何都输出 HTML 表格，prompt 措辞对输出无影响）；
 - **关键参数**：`temperature=0`（确定性输出的关键）、`max_tokens=16384`（不足会截断）；
 - **格式统一**：模型输出 HTML 表格 → `html_table_to_markdown()` 转成 Markdown 管道表格（处理 rowspan/colspan 展开、剥 HTML 标签、竖线转义）；
-- **缓存**：同图同输出（确定性），Markdown 缓存到 `ocr_cache/<图片名>.md`，命中直接复用；
-- **失败语义**：服务调用失败/返回空 → 抛出 `RuntimeError`，该图计入失败清单，**不降级**（提示词以 OCR 为主，无 OCR 无法按当前契约提取）。
+- **实现分层**：`_ocr_image_to_md(image_path, cache_name)` 是单图 OCR 通道（缓存检查 → POST → 转 Markdown → 按 `cache_name` 写缓存）；`ocr_markdown()` 负责分块调度与合并；
+- **缓存**：同图同输出（确定性），两块分别缓存到 `ocr_cache/<图片名>_LL.md` / `<图片名>_LR.md`，命中直接复用；改 OCR 行为需清对应缓存；
+- **失败语义**：任一块服务调用失败/返回空 → 抛出 `RuntimeError`（消息带 `_LL`/`_LR` 区分块），该图计入失败清单、不写缓存、**不降级**（提示词以 OCR 为主，无 OCR 无法按当前契约提取）。
 
-OCR 输出特性（0a04 基准实测）：
+#### 3.3.1 两块 OCR 结果的合并方式
+
+合并是**纯文本拼接**（不解析表格、不把两块拼成一张表），每块前加一行标注头，与提示词【OCR 表格结构说明】的左/右子表约定一致：
+
+```text
+【左子表（intel 老款 + 11~14 代处理器）】
+| intel 处理器 | 散片 | 原盒 |
+|---|---|---|
+| I5 10400F | 612 | |
+
+【右子表（intel 15/14 代（U 系）处理器 + AMD）】
+| intel 15/14 代处理器 | 散片 | 原盒 |
+|---|---|---|
+| U7 265KF | | 1695 |
+| A M D | 散片 | 原盒 |
+| Ryzen-5 5600GT | 900 | |
+```
+
+设计原因：
+
+- **不跨块并表**：两块行数不同、列结构各有 colspan，按行强行对齐拼接需要假设两块行序一一对应，OCR 行数稍有偏差就会错位串价（正是提示词"不要跨子表对应价格"要防的错误）。保持两表独立 + 文字标注，LLM 各自提取后汇总，天然不会跨子表配对；
+- **标注头直接沿用提示词里的子表措辞**，LLM 无需额外映射即可知道哪块是哪张表；
+- **报价日期不在两块内**：横幅随分块被排除（分块只覆盖表格区），`sheet_date` 按契约从原图标题读取——`call_llm()` 随消息附带的完整裁剪图含横幅，日期由此获得。
+
+OCR 输出特性（0a04 基准实测，整图 OCR 时期的结论，分块后数字/标注仍完整）：
 - 数字识别零错误（64/64 价格点），"新/少/拆/在途/下午"标注和 `****` 异常标记完整保留在正确单元格；
-- 偶发型号名误识（`I7 13700I`、`I7 13900F` 应为 I9、相邻行同名粘连）——由 S4 提示词的第二步"原图消歧"处理。
+- 偶发型号名误识（`I7 13700I`、`I7 13900F` 应为 I9、相邻行同名粘连）——由 S4 提示词的第二步"原图消歧"处理；分块后此类误识减少（见第 5 节实验记录）。
 
 ### 3.4 提示词（`prompts/OCR主_指令.txt` + `build_joint_prompt()`）
 
@@ -239,24 +269,27 @@ OCR 输出特性（0a04 基准实测）：
   【OCR 表格结构说明】左右子表布局、列头、去规格后缀
   【提取规则】8 条（双型号行拆分、单型号双价、标注后缀、
               "数字+****"有效、空格无价、同名多行按行拆分、不编造）
-  【输出 JSON 契约】完整字段说明（sheet_date 年份 2026、category 固定 CPU、
-              vendor 判别、product_name 型号本体、price_type 枚举、price 纯数字）
+  【输出 JSON 契约】完整字段说明（sheet_date 从原图标题读取、年份 2026、
+              category 固定 CPU、vendor 判别、product_name 型号本体、
+              price_type 枚举、price 纯数字）
   【原图消歧规则】4 条（同名多行回图确认、前缀可疑、粘连、判断不了跳过）
   【CPU 提取白名单】68 Intel + 18 AMD 型号 + 4 条匹配规则
 ======================================================================
 第二部分：OCR 转写数据
-  【OCR 表格转写（Markdown）】+ 53 行管道表格（S3a 输出）
+  【OCR 表格转写（Markdown）】+【左子表（…）】LL 表 +【右子表（…）】LR 表
 ======================================================================
 ```
 
-- 拼接：`build_joint_prompt(ocr_md)` = 指令文件全文 + OCR Markdown（数据区在指令之后，边界清晰）；
+- 拼接：`build_joint_prompt(ocr_md)` = 指令文件全文 + `ocr_md`（数据区在指令之后，边界清晰）；
+- `ocr_md` 即 3.3.1 的合并结果（两个带标注头的独立表格），直接字符串拼接，不再做二次加工；
+- **LLM 消息形态**：一条 user 消息、两个 content —— 裁剪图（`image_url` base64，含横幅日期，供消歧与 `sheet_date`）+ 文本（指令全文 + 合并的 OCR 数据）；
 - **不再使用 `base.txt` / `CPU.txt`**：新结构自带完整 JSON 契约和白名单。旧 base.txt 的"含星号价格视为无效"与新结构的"数字+**** 有效"规则冲突，弃用 base.txt 后冲突消除；`build_cpu_prompt()`（base.txt + CPU.txt 拼接）与 `CPU.txt` 已删除。
 - 提示词文件可运行时修改，改后需手动删 `extracted_cpu/` 对应 JSON 才会重新提取。
 
 ### 3.5 LLM 调用与后处理（`call_llm()` / `extract_one()`）
 
 - 通过 `openai` SDK 调用 `llm_config.json` 配置的 OpenAI 兼容接口（当前 glm-5.3-flash）；
-- 消息形态：裁剪图（`image_url` base64）+ 提示词（多模态双内容）；
+- 消息形态：完整裁剪图（`image_url` base64，含横幅日期，提供 `sheet_date` 与消歧裁决）+ 提示词（指令 + 合并后的 LL/LR OCR 数据，多模态双内容）；
 - `temperature` 兼容降级重试、Markdown 代码围栏剥离、超时默认 300 秒；
 - 后处理：只保留 `category=="CPU"`（双保险过滤）+ 附 `source_image` 溯源字段；
 - 落盘 `extracted_cpu/<图片名>.json`，即断点续跑检查点。
@@ -266,11 +299,11 @@ OCR 输出特性（0a04 基准实测）：
 | 维度 | CPU 管线（extract_cpu.py） | 通用管线（extract.py） |
 | --- | --- | --- |
 | 输入目录 | 仅 `价格图片/CPU/` | `价格图片/` 全部子目录 |
-| 裁剪预处理 | 三段式锚点裁剪 | 无 |
-| OCR 通道 | 有（llama.cpp GLM-OCR） | 无 |
-| 提示词 | `prompts/OCR主_指令.txt` + OCR Markdown | base.txt + `<父目录>.txt` |
-| 输出目录 | `extracted_cpu/` | `extracted/` |
-| 进度日志 | `extract_cpu_progress.log` | `extract_progress.log` |
+| 裁剪预处理 | 三段式锚点裁剪 + LL/LR 子表分块 | 无 |
+| OCR 通道 | 有（llama.cpp GLM-OCR，对 LL/LR 分块分别 OCR 后合并） | 无 |
+| 提示词 | `prompts/OCR主_指令.txt` + 合并的 LL/LR OCR Markdown | base.txt + `<父目录>.txt` |
+| 输出目录 | `output_cpu/extracted_cpu/` | `extracted/` |
+| 进度日志 | `output_cpu/extract_cpu_progress.log` | `extract_progress.log` |
 
 两条管线输出互不影响；下游 `clean_load.py` 读取的是 `extracted/`，CPU 结果若要入库需另行合并处理（见第 6 节）。
 
@@ -336,19 +369,31 @@ python database/load_cpu.py --status                     # 查看库内 CPU 数�
 
 0b5a 残余 7 项错误：1 项数值错 + 4 项漏提 + 1 项多提 + 1 项清单外，根因集中在 OCR 型号名误识（`12700` 系列三行同名、`I7 13900F` 应为 I9）和疑似基准口径差异（13100/13100F、9850X3D 图上有价但基准记无价，待人工核图）。
 
-性能：每图 LLM 耗时 36~50 秒 + OCR 12~17 秒（默认 2 并发，`--workers` 可调，上限 6）。
+性能：每图 LLM 耗时 36~50 秒 + OCR 12~17 秒（单图整图 OCR 时期；当前对 LL/LR 两块分别 OCR，OCR 次数×2，耗时以实测为准；默认 2 并发，`--workers` 可调，上限 6）。
+
+### 5.1 LL/LR 分块 OCR 的实验记录
+
+来源：`database/test_crops/`（`split_table_blocks()` 与分块 OCR 的对照实验，产物为临时实验文件）。
+
+- 分块后每块的 OCR 输出是**干净的单表**（LL 只有 “intel 处理器” 表，LR 只有 “15/14 代” 表 + AMD），不再出现整图 OCR 时的左右两表混排与跨表串行风险；
+- 分块提升了文字有效分辨率：单块宽度约为原裁剪图的一半，在同一 OCR 输入尺度下型号列字符像素更多，后缀（F/KF/K）误识与相邻行同名粘连减少；
+- 已知小瑕疵：LR 块内 AMD 表的型号列在 HTML `rowspan` 展开后会重复两遍（价格列无错），由 LLM 提取层去重解决；
+- 分块图不含横幅，**报价日期仍靠随消息附带的完整裁剪图**（见 3.3.1）；
+- 上表 0a04/0b5a 的 100% / 95.3% 是**整图 OCR 时期**的基准结果；本步骤代码已接入主管线，但真实链路重跑与基准复验尚未完成（服务离线期间只做了离线逻辑验证），因此分块后的量化收益仍需重跑验证后才能写入结论。
 
 ---
 
 ## 6. 已知注意事项与边界
 
-1. **OCR 是硬依赖**：提示词以 OCR 为主，`ocr_markdown()` 失败即抛 `RuntimeError`，该图计失败。跑批前确认 llama.cpp 服务（`127.0.0.1:8080`）已启动；
-2. **CPU 结果通过 `load_cpu.py` 入库**（见第 4 节）；通用管线的 mem/TF 结果走 `clean_load.py`（读取 `extracted/`），两条入库路径互不干扰；
-3. **缓存不自动失效**：`output_cpu/` 下的 `crop_cache/`（裁剪图 `<图片名>.png` + 分块图 `<图片名>_LL/_LR.png`）、`ocr_cache/`（OCR Markdown）、`extracted_cpu/`（结果）缓存都按文件名复用。改裁剪逻辑 → 清 `crop_cache/`；改分块逻辑 → 清 `crop_cache/` 下对应 `_LL/_LR` 文件；改 OCR prompt → 清 `ocr_cache/`；改提示词 → 删 `extracted_cpu/` 对应 JSON；
-4. **锚点/分块检测的适用前提**：左右边界与分块分界竖线检测基于当前模板（316 张全部成功）；若未来出现完全不同版式的报价单，检测会回退固定比例或失败，需人工检查；
-5. **白名单联动**：CPU 管线白名单内嵌在 `OCR主_指令.txt`，通用管线白名单在 `cpu_watchlist.json`，更新型号策略时需同步两处；
-6. **配额与安全**：批量提取和导入会真实消耗 LLM 配额、传输图片、写入数据库，执行前需明确授权；`llm_config.json` 含敏感凭据，严禁外泄；
-7. **失败处理原则**：失败图计入清单、重跑重试，绝不伪造成功，也不因 LLM 提取不确定而补造价格——宁可漏掉不确定行，也不跨行/跨列/跨产品推断。
+1. **OCR 是硬依赖**：提示词以 OCR 为主，`ocr_markdown()` 任一分块失败即抛 `RuntimeError`，该图计失败。跑批前确认 llama.cpp 服务（`127.0.0.1:8080`）已启动；
+2. **两块 OCR 合并是纯文本拼接**：LL/LR 保持两张独立表格 + 标注头，不做跨块并表（行数/colspan 无法可靠对齐，强行并表会错位串价）；
+3. **日期不在 OCR 数据区内**：横幅随分块被排除，`sheet_date` 依赖随消息附带的完整裁剪图（原图标题）；若日后改为不传图或只传分块图，日期提取会失效；
+4. **CPU 结果通过 `load_cpu.py` 入库**（见第 4 节）；通用管线的 mem/TF 结果走 `clean_load.py`（读取 `extracted/`），两条入库路径互不干扰；
+5. **缓存不自动失效**：`output_cpu/` 下的 `crop_cache/`（裁剪图 `<图片名>.png` + 分块图 `<图片名>_LL/_LR.png`）、`ocr_cache/`（OCR Markdown `<图片名>_LL/_LR.md`）、`extracted_cpu/`（结果）缓存都按文件名复用。改裁剪逻辑 → 清 `crop_cache/`；改分块逻辑 → 清 `crop_cache/` 下对应 `_LL/_LR` 文件及 `ocr_cache/` 对应分块 md；改 OCR prompt → 清 `ocr_cache/`；改提示词 → 删 `extracted_cpu/` 对应 JSON；
+6. **锚点/分块检测的适用前提**：左右边界与分块分界竖线检测基于当前模板（316 张全部成功）；若未来出现完全不同版式的报价单，检测会回退固定比例或失败，需人工检查；
+7. **白名单联动**：CPU 管线白名单内嵌在 `OCR主_指令.txt`，通用管线白名单在 `cpu_watchlist.json`，更新型号策略时需同步两处；
+8. **配额与安全**：批量提取和导入会真实消耗 LLM 配额、传输图片、写入数据库，执行前需明确授权；`llm_config.json` 含敏感凭据，严禁外泄；
+9. **失败处理原则**：失败图计入清单、重跑重试，绝不伪造成功，也不因 LLM 提取不确定而补造价格——宁可漏掉不确定行，也不跨行/跨列/跨产品推断。
 
 **超时配置**（`llm_config.json`，防止脚本卡住）：
 - `timeout_seconds: 300` —— LLM 调用超时；
