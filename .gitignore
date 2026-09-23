@@ -5,6 +5,10 @@
 database/output_cpu/
 database/output_mem/
 
+# Python 缓存
+__pycache__/
+*.pyc
+
 # 系统文件
 .DS_Store
 Thumbs.db
