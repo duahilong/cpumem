@@ -66,8 +66,54 @@ OUT_DIR = os.path.join(OUTPUT_DIR, "extracted_cpu")
 CROP_DIR = os.path.join(OUTPUT_DIR, "crop_cache")
 OCR_CACHE_DIR = os.path.join(OUTPUT_DIR, "ocr_cache")
 PROGRESS_LOG = os.path.join(OUTPUT_DIR, "extract_cpu_progress.log")
+MANIFEST_PATH = os.path.join(OUTPUT_DIR, "manifest.json")   # 哈希 → 原名映射（随 DB 备份）
 
 MAX_WORKERS = 2    # 默认并发数（可用 --workers N 调整）
+
+
+# ============ 内容寻址键（方案 B：哈希贯穿全链路） ============
+
+def content_key(img_path: str) -> str:
+    """计算图片内容的 MD5 作为管线内部键（分块读取，大文件不占内存）。
+    内容寻址：字节不变 → 键不变（改名/移动/复制无影响）；字节变 → 新键。"""
+    import hashlib
+    h = hashlib.md5()
+    with open(img_path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def load_manifest() -> dict:
+    """读取 哈希 → 原名 映射表；不存在返回空 dict。"""
+    if os.path.exists(MANIFEST_PATH):
+        with open(MANIFEST_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def register_key(img_path: str) -> str:
+    """返回源图的内容哈希键，并在 manifest 中登记 键 → 原名。
+    同键已登记同名 → 不重复写；已登记异名 → 记入 aliases 别名列表。"""
+    key = content_key(img_path)
+    orig = os.path.basename(img_path)
+    manifest = load_manifest()
+    entry = manifest.get(key)
+    if entry is None:
+        manifest[key] = orig
+        with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+    elif isinstance(entry, str) and entry != orig:
+        # 同内容异名：同一张图，升级为 {name, aliases} 结构保留完整线索
+        manifest[key] = {"name": entry, "aliases": [orig]}
+        with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+    elif isinstance(entry, dict) and orig != entry.get("name") \
+            and orig not in entry.get("aliases", []):
+        entry["aliases"].append(orig)
+        with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+    return key
 
 
 # ============ 提示词（CPU 专用） ============
@@ -82,8 +128,8 @@ def load_prompt(fname: str, default: str = "") -> str:
 
 # ============ 裁剪预处理 ============
 
-def crop_cpu_image(img_path: str) -> str:
-    """三段式锚点裁剪：像素检测表格线位置，逐图自适应裁剪。
+def crop_cpu_image(img_path: str, key: str) -> str:
+    """三段式锚点裁剪（内容寻址：缓存键 = 内容哈希 key）。：像素检测表格线位置，逐图自适应裁剪。
 
     替代旧版固定 6.2%/42% 裁剪（会切进右侧表格窄边、露出其他产品列头）。
     检测到的锚点在全部 316 张 CPU 图片上验证：
@@ -98,7 +144,7 @@ def crop_cpu_image(img_path: str) -> str:
 
     结果缓存到 crop_cache/，已存在直接复用。返回裁剪图路径。
     """
-    name = os.path.splitext(os.path.basename(img_path))[0]
+    name = key
     out_path = os.path.join(CROP_DIR, name + ".png")
     if os.path.exists(out_path):
         return out_path
@@ -173,15 +219,18 @@ def detect_vlines(arr, y0_ratio=0.10, y1_ratio=0.98, threshold=0.6,
 
 def _find_split(vlines, width, ratio_range, fallback, offset=0):
     """在预期比例范围内选分界竖线；无候选时回退固定比例。
-    offset: 切点相对竖线的偏移像素（如 +2 避开竖线本身，落在表间隙内）。"""
+    多根候选时取最靠左的一根（cand[0]）：SPLIT2 的目标是
+    处理器表右边界（x≈0.536），15/14 表左边界（x≈0.560）比它靠右，
+    取最左自然跳过。offset: 切点相对竖线的偏移像素（如 +2
+    避开竖线本身，落在表间隙内）。"""
     lo, hi = ratio_range
     cand = [x for x in vlines if lo < x / width < hi]
     if cand:
-        return cand[-1] + offset
+        return cand[0] + offset
     return int(width * fallback)
 
 
-def split_table_blocks(crop_path: str) -> dict:
+def split_table_blocks(crop_path: str, key: str) -> dict:
     """表级竖向分块：两级左右分块，把裁剪图切成两个独立子表块（方案定稿）。
 
     第二层 @ x/w≈0.397（"intel 15/14 代处理器"表原盒列右边界，
@@ -196,9 +245,9 @@ def split_table_blocks(crop_path: str) -> dict:
     切点均相对分界竖线偏移 +2px，落在表间隙内（表内信息不拆散，无信息丢失）；
     竖线位置是模板属性，与图片缩放/宽高比无关；检测失败回退固定比例。
 
-    结果前缀命名平铺缓存到 crop_cache/（<图片名>_LL.png / <图片名>_LR.png），
+    结果前缀命名平铺缓存到 crop_cache/（{哈希键}_LL.png / _LR.png），
     已存在直接复用。返回 {'LL': 路径, 'LR': 路径}。"""
-    name = os.path.splitext(os.path.basename(crop_path))[0]
+    name = key
     ll_path = os.path.join(CROP_DIR, name + "_LL.png")
     lr_path = os.path.join(CROP_DIR, name + "_LR.png")
     if os.path.exists(ll_path) and os.path.exists(lr_path):
@@ -321,21 +370,20 @@ def _ocr_image_to_md(image_path: str, cache_name: str) -> str:
     return md
 
 
-def ocr_markdown(img_path: str) -> str:
+def ocr_markdown(img_path: str, key: str) -> str:
     """对 LL/LR 两个分块图分别调用 GLM-OCR，合并为带左右子表标注的 Markdown。
 
     分块图来自 split_table_blocks()（裁剪图的表级竖向分块）：
       LL = "intel 处理器" 表（老款 + 11~14 代），LR = "intel 15/14 代" 表 + AMD。
     分块后每块更窄、文字有效分辨率更高，OCR 误识更少；两块的缓存键为
-    <图片名>_LL.md / <图片名>_LR.md。
+    <哈希键>_LL.md / <哈希键>_LR.md。
     报价日期不在分块图内（横幅随分块被排除），sheet_date 按提示词契约
     从原图标题提取（call_llm 随消息附带完整裁剪图，横幅在其中）。
     合并格式与提示词【OCR 表格结构说明】的左/右子表约定一致。"""
-    name = os.path.splitext(os.path.basename(img_path))[0]
-    crop_path = crop_cpu_image(img_path)
-    blocks = split_table_blocks(crop_path)
-    md_ll = _ocr_image_to_md(blocks["LL"], name + "_LL")
-    md_lr = _ocr_image_to_md(blocks["LR"], name + "_LR")
+    crop_path = crop_cpu_image(img_path, key)
+    blocks = split_table_blocks(crop_path, key)
+    md_ll = _ocr_image_to_md(blocks["LL"], key + "_LL")
+    md_lr = _ocr_image_to_md(blocks["LR"], key + "_LR")
     return (
         "【左子表（intel 老款 + 11~14 代处理器）】\n"
         + md_ll
@@ -411,20 +459,36 @@ def call_llm(crop_path: str, prompt: str, use_image: bool = True) -> dict:
 # ============ 提取单张 ============
 
 def extract_one(img_path: str) -> tuple[str, bool, str]:
-    """顺序处理：裁剪 → OCR → 组装提示词 → LLM 提取。
+    """内容寻址处理：PNG 验证 → 算哈希键 → 断点续跑 → 裁剪 → OCR → LLM 提取。
+
+    全链路以源图内容的 MD5 哈希为唯一键（方案 B）：
+      - 非 PNG 格式：该图失败，不进管线（管线内格式固定 PNG）
+      - key 全链路贯穿：裁剪/分块/OCR 缓存/最终 JSON/DB source_image
+      - 唯一检查点 = extracted_cpu/{key}.json（只在全链路成功后原子落盘）
+      - 同内容异名重发 → 相同哈希 → 自动跳过（免费去重）
+      - 图片字节不变 → 哈希不变 → 缓存/结果永远命中；字节变 → 新键新条目
     提示词以 OCR 输出为主（prompts/OCR主_指令.txt + OCR Markdown + 裁剪图）,
     OCR 失败/返回空时抛出 RuntimeError，该图计为失败（不降级纯视觉）。"""
-    name = os.path.splitext(os.path.basename(img_path))[0]
-    out_path = os.path.join(OUT_DIR, name + ".json")
+    # 入口验证：管线内格式固定 PNG
+    if os.path.splitext(img_path)[1].lower() != ".png":
+        return (os.path.basename(img_path)[:16], False,
+                f"非 PNG 格式（{os.path.splitext(img_path)[1]}），请转换为 PNG 后放入目录")
+    try:
+        key = register_key(img_path)
+    except Exception as e:
+        return (os.path.basename(img_path)[:16], False, f"哈希计算/manifest 登记失败: {e}")
+    name = key[:16]
+    out_path = os.path.join(OUT_DIR, key + ".json")
     if os.path.exists(out_path):
         return (name, True, "跳过（已存在）")
     try:
         t0 = time.time()
-        crop_path = crop_cpu_image(img_path)
-        ocr_md = ocr_markdown(img_path)
+        crop_path = crop_cpu_image(img_path, key)
+        ocr_md = ocr_markdown(img_path, key)
         full_prompt = build_joint_prompt(ocr_md)
         data = call_llm(crop_path, full_prompt)
-        data["source_image"] = os.path.basename(img_path)
+        # source_image 固定为 哈希 + .png（内容寻址溯源，反查原名走 manifest）
+        data["source_image"] = key + ".png"
         # 只保留 CPU 类目的记录（双保险：白名单外或 LLM 串区的记录剔除）
         data["products"] = [p for p in data.get("products", [])
                             if str(p.get("category", "")) == "CPU"]
@@ -465,6 +529,9 @@ def collect_images(target: str) -> list[str] | None:
         return images
     print(f"错误: 路径不存在: {target}")
     return None
+
+
+import signal
 
 
 def main():
@@ -553,21 +620,66 @@ def main():
                 failed_list.append(name)
             print(f"[{idx}/{len(images)}] {name[:16]}...: {msg}", flush=True)
 
+    stop = threading.Event()
+    
+    def _sigint(sig, frame):
+        # 第一次 Ctrl+C：请求停止（不再提交新任务，等待在跑的图完成）
+        if not stop.is_set():
+            stop.set()
+            print("\n[CPU 管线] 收到 Ctrl+C，正在优雅停止：不再开始新图，等待在跑的图完成（再按一次 Ctrl+C 强制退出）...", flush=True)
+        else:
+            print("\n[CPU 管线] 强制退出。", flush=True)
+            raise KeyboardInterrupt
+    
+    signal.signal(signal.SIGINT, _sigint)
+    
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(extract_one, img): img for img in images}
-        for fut in as_completed(futures):
-            name, success, msg = fut.result()
-            report(name, success, msg)
-
-    print(f"\n[CPU 管线] 提取完成: 新提取 {ok}, 跳过 {skipped}, 失败 {fail}，结果存于 {OUT_DIR}")
+        pending_imgs = list(images)
+        futures = set()
+        try:
+            # 主循环：按需提交新任务；stop 置位后不再提交
+            idx_submit = 0
+            while idx_submit < len(pending_imgs) and not stop.is_set():
+                while len(futures) < workers and idx_submit < len(pending_imgs) and not stop.is_set():
+                    fut = pool.submit(extract_one, pending_imgs[idx_submit])
+                    futures.add(fut)
+                    idx_submit += 1
+                done_futs = {f for f in futures if f.done()}
+                for fut in done_futs:
+                    futures.discard(fut)
+                    name, success, msg = fut.result()
+                    report(name, success, msg)
+                if not stop.is_set() and futures:
+                    time.sleep(0.2)
+            # stop 置位或提交完毕：等待剩余在跑任务完成
+            for fut in as_completed(futures):
+                name, success, msg = fut.result()
+                report(name, success, msg)
+        except KeyboardInterrupt:
+            print("\n[CPU 管线] 强制退出。未完成的图下次重跑会自动重试。", flush=True)
+    
+    if stop.is_set():
+        print(f"\n[CPU 管线] 已优雅停止: 新提取 {ok}, 跳过 {skipped}, 失败 {fail}，剩余待提取 {len(images) - ok - skipped - fail} 张，结果存于 {OUT_DIR}")
+    else:
+        print(f"\n[CPU 管线] 提取完成: 新提取 {ok}, 跳过 {skipped}, 失败 {fail}，结果存于 {OUT_DIR}")
     if failed_list:
         print("失败清单（重跑 extract_cpu.py 会自动重试）:")
         for n in failed_list[:10]:
             print(f"  - {n}")
         if len(failed_list) > 10:
             print(f"  ... 等共 {len(failed_list)} 张")
-    total_done = sum(1 for img in images
-                     if os.path.exists(os.path.join(OUT_DIR, os.path.splitext(os.path.basename(img))[0] + ".json")))
+    # 总进度按内容哈希统计（与检查点键一致；非 PNG 不计入完成）
+    manifest = load_manifest()
+    total_done = 0
+    for img in images:
+        if os.path.splitext(img)[1].lower() != ".png":
+            continue
+        try:
+            k = manifest.get(content_key(img))
+            if k and os.path.exists(os.path.join(OUT_DIR, k + ".json")):
+                total_done += 1
+        except Exception:
+            pass
     with open(PROGRESS_LOG, "a", encoding="utf-8") as f:
         f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 本次新提取={ok} 失败={fail} 总进度={total_done}/{len(images)}\n")
 
@@ -580,17 +692,28 @@ def status():
             if os.path.splitext(f)[1].lower() in IMG_EXTS:
                 images.append(os.path.join(root, f))
     images.sort()
+    manifest = load_manifest()
     done = {os.path.splitext(os.path.basename(p))[0]
             for p in glob.glob(os.path.join(OUT_DIR, "*.json"))}
-    pending = [os.path.basename(i) for i in images
-               if os.path.splitext(os.path.basename(i))[0] not in done]
+    pending = [i for i in images
+               if os.path.splitext(i)[1].lower() == ".png"
+               and content_key(i) not in done]
+    non_png = [os.path.basename(i) for i in images
+               if os.path.splitext(i)[1].lower() != ".png"]
     print(f"[CPU 管线] 图片总数: {len(images)}")
     print(f"已提取: {len(done)}")
     print(f"待提取: {len(pending)}")
-    if pending:
-        print("\n待提取清单（前10个）:")
-        for n in pending[:10]:
+    if non_png:
+        print(f"非 PNG（提取时会报错）: {len(non_png)}")
+        for n in non_png[:5]:
             print(f"  - {n}")
+    if pending:
+        print("\n待提取清单（前10个，显示 manifest 原名）:")
+        for i in pending[:10]:
+            k = content_key(i)
+            entry = manifest.get(k, k[:16])
+            disp = entry.get("name") if isinstance(entry, dict) else entry
+            print(f"  - {disp}")
         if len(pending) > 10:
             print(f"  ... 等共 {len(pending)} 张")
 

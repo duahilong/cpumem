@@ -11,21 +11,33 @@
 CPU 提取与其他类目（mem / TF / 其他）**完全独立**，入口是 `database/extract_cpu.py`，而通用入口 `database/extract.py` 不再负责 CPU 目录。整条流程是**纯顺序单路径**（无降级分支）：
 
 ```text
-价格图片/CPU/*.png                    # 输入：仅 CPU 子目录下的截图
-  → S1 断点续跑检查                    # extracted_cpu/ 已有结果 JSON 则跳过
-  → S2 三段式锚点裁剪 crop_cpu_image() # 像素检测表格线，逐图自适应，缓存 crop_cache/
-  → S2b 表级竖向分块 split_table_blocks() # 两级左右分块到子表粒度（LL/LR），缓存 crop_cache/<图片名>_LL/_LR.png
-  → S3 OCR 通道 ocr_markdown()        # 对 LL/LR 两块分别 llama.cpp GLM-OCR → HTML → Markdown，
-                                       # 按【左子表】/【右子表】标注合并，缓存 ocr_cache/<图片名>_LL|_LR.md
+价格图片/CPU/*.png                    # 输入：仅 PNG 格式（非 PNG 入口报错）；文件名任意，不参与键控
+  → S1 入口验证 + 内容哈希键            # 非 PNG → 该图失败；算 MD5 → key（全链路唯一键）
+                                       # 登记 manifest.json（哈希 → 原名）
+  → S1b 断点续跑检查                    # extracted_cpu/{key}.json 已有则跳过
+                                       # （同内容异名重发 → 相同哈希 → 自动跳过，免费去重）
+  → S2 三段式锚点裁剪 crop_cpu_image(img, key) # 像素检测表格线，逐图自适应，缓存 crop_cache/{key}.png
+  → S2b 表级竖向分块 split_table_blocks(crop, key) # 两级左右分块到子表粒度，缓存 crop_cache/{key}_LL/_LR.png
+  → S3 OCR 通道 ocr_markdown(img, key) # 对 LL/LR 两块分别 llama.cpp GLM-OCR → HTML → Markdown，
+                                       # 按【左子表】/【右子表】标注合并，缓存 ocr_cache/{key}_LL|_LR.md
   → S4 提示词组装 build_joint_prompt() # prompts/OCR主_指令.txt + OCR Markdown（OCR 为主、图为辅）
   → S5 LLM 提取 call_llm()            # 裁剪图 + 提示词 → JSON
-  → S6 后处理过滤 + 落盘               # 只保留 category=="CPU"，附 source_image
-extracted_cpu/<图片名>.json           # 输出：每张图一份 JSON（断点续跑检查点）
-  → S7 数据导入 load_cpu.py           # 预验证 + 幂等入库 → cpumem.db（见第 4 节）
+  → S6 后处理过滤 + 落盘               # 只保留 category=="CPU"，source_image = "{key}.png"
+extracted_cpu/{key}.json              # 输出：每张图一份 JSON（唯一检查点，全链路成功后才落盘）
+  → S7 数据导入 load_cpu.py           # 预验证 + 幂等入库 → cpumem.db（quotes.source_image = "{key}.png"）
 ```
 
 设计要点：
 
+- **内容寻址键（方案 B）**：全链路以源图内容的 MD5 哈希为唯一键——裁剪/分块/OCR
+  缓存、结果 JSON、DB `source_image` 全部用同一个 `{key}` 命名。内容寻址的性质
+  （数学保证）：字节不变 → 键不变（改名/移动/复制无影响）；字节变 → 新键新条目；
+  不同内容 → 不同键（永不歧义）。源文件名只当"人看的标签"，不参与任何键控；
+- **manifest（哈希 → 原名映射）**：`output_cpu/manifest.json`，管线自动登记，
+  同哈希异名进 `aliases` 别名列表。反向溯源（从产物/DB 找原文件）查它；
+  随 DB 一起备份（丢失可用源图重算哈希重建）；
+- **入口 PNG 验证**：非 `.png` 格式的图该图计失败并提示"请转换为 PNG 后放入目录"，
+  不进管线（管线内格式固定 PNG），管线继续跑其他图；
 - **提示词以 OCR 输出为主**（`prompts/OCR主_指令.txt`），裁剪图作为辅助证据随消息一并提供——LLM 先从结构化的 OCR Markdown 完成提取，再用原图核对不确定项；
 - **OCR 失败即报错**：`ocr_markdown()` 失败/返回空时抛出 `RuntimeError`，该图计入失败清单（不产生结果文件，重跑自动重试），**不做纯视觉降级**——因为提示词以 OCR 为主，无 OCR 时旧提示词体系与当前 JSON 契约不一致，静默降级会导致质量不可预期；
 - **确定性输出**：llama.cpp + `temperature=0` 的 GLM-OCR 同图同输出，OCR 缓存安全可复用。
@@ -46,15 +58,22 @@ extracted_cpu/<图片名>.json           # 输出：每张图一份 JSON（断�
 └──────────────────────────┬──────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 步骤 S1：断点续跑检查（extract_one()）                            │
-│  目标输出 extracted_cpu/<图片名>.json 已存在？                    │
+│ 步骤 S1：入口验证 + 内容哈希键（extract_one()）                    │
+│  ① PNG 验证：扩展名 != .png → 该图失败（提示转换为 PNG），         │
+│     不进管线，管线继续跑其他图                                    │
+│  ② 算内容哈希（唯一一次）：key = MD5(文件字节)（分块读取）          │
+│     登记 manifest.json：{key: 原名}（同键异名 → aliases）          │
+│  ③ 断点续跑检查：extracted_cpu/{key}.json 已存在？                 │
 │      ├─ 是 → 跳过该图（不再调 OCR / LLM，直接完成）                │
+│      │       （同内容异名重发 → 相同哈希 → 自动跳过）               │
 │      └─ 否 → 进入提取流程                                        │
+│  哈希性质：字节不变 → 键不变（改名/移动/复制无影响）；              │
+│  字节变（重新保存/转码/改价重发）→ 新键 → 新条目走管线              │
 └──────────────────────────┬──────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 步骤 S2：三段式锚点裁剪（crop_cpu_image()，缓存 crop_cache/）      │
-│  crop_cache/<图片名>.png 已存在？ → 是则直接复用                   │
+│ 步骤 S2：三段式锚点裁剪（crop_cpu_image(img, key)，缓存 crop_cache/）│
+│  crop_cache/{key}.png 已存在？ → 是则直接复用                      │
 │  否则像素检测两个锚点：                                           │
 │   · 横幅底部：x=10%/25% 两列采样，从顶部找第一个"持续亮区"          │
 │     （≥1% 高度全 ≥200 灰度）≈ y/h=0.090；失败回退 0.09             │
@@ -71,9 +90,9 @@ extracted_cpu/<图片名>.json           # 输出：每张图一份 JSON（断�
 └──────────────────────────┬──────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 步骤 S3：OCR 通道（ocr_markdown()，缓存 ocr_cache/）               │
-│  对 S2b 的两个分块图分别 OCR（各自独立缓存 _LL.md / _LR.md）：       │
-│  ocr_cache/<图片名>_LL.md 已存在？ → 是则该块直接复用               │
+│ 步骤 S3：OCR 通道（ocr_markdown(img, key)，缓存 ocr_cache/）        │
+│  对 S2b 的两个分块图分别 OCR（各自独立缓存）：                       │
+│  ocr_cache/{key}_LL.md 已存在？ → 是则该块直接复用                  │
 │  否则：分块图 base64 → POST llama.cpp /v1/chat/completions        │
 │    model=glm-ocr（127.0.0.1:8080）                                │
 │    prompt = "识别图片中的所有文字，输出为Markdown格式"               │
@@ -122,17 +141,21 @@ extracted_cpu/<图片名>.json           # 输出：每张图一份 JSON（断�
 ┌─────────────────────────────────────────────────────────────────┐
 │ 步骤 S6：后处理与落盘（extract_one()）                            │
 │  ① 类目双保险过滤：只保留 category=="CPU" 的记录                   │
-│  ② 附溯源字段：source_image = 原始图片文件名                       │
-│  ③ 写入 extracted_cpu/<图片名>.json（UTF-8，indent=2）             │
-│     —— 写出即成为断点续跑检查点（下次 S1 自动跳过）                │
+│  ② 附溯源字段：source_image = "{key}.png"（哈希 + 固定 .png，       │
+│     内容寻址溯源；反查原名走 manifest）                            │
+│  ③ 写入 extracted_cpu/{key}.json（UTF-8，indent=2）                │
+│     —— 唯一检查点，只在全链路成功后原子落盘（下次 S1 自动跳过）      │
+│     中断/失败 → 无 JSON → 重跑自动重试（裁剪/OCR 缓存命中，只重调 LLM）│
 │  修改提示词/裁剪/OCR 逻辑后要重新提取 → 手动删对应 JSON             │
 └──────────────────────────┬──────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ 批量调度（main()）与日志                                           │
 │ 默认 2 线程并发（--workers 可调，上限 6），每张图独立走 S1~S6，线程安全落盘│
+│  优雅停止：第一次 Ctrl+C → 不再提交新图，等在跑的图完成（正常写盘、  │
+│  打印统计后退出）；第二次 Ctrl+C → 强制退出（未完成图下次重跑重试）  │
 │  统计 新提取/跳过/失败，打印失败清单（前 10 个）                    │
-│  向 extract_cpu_progress.log 追加一行进度记录                      │
+│  向 extract_cpu_progress.log 追加一行进度记录（总进度按哈希键统计）  │
 │  重跑自动重试失败项（S1 不拦截无结果文件的图）                      │
 └──────────────────────────────────────────────────────────────────┘
 
@@ -152,8 +175,30 @@ extracted_cpu/<图片名>.json           # 输出：每张图一份 JSON（断�
   ```
 - 传入**图片文件**：校验扩展名（.png/.jpg/.jpeg），提取该张；
 - 传入**目录**：`os.walk` 扫描其中的图片文件（含子目录），提取全部；目录无图片、路径不存在、非图片文件均报错退出；
-- `--status`：查看默认目录（`价格图片/CPU/`，由脚本位置推导）的进度，不消耗配额；
-- 断点续跑：`extracted_cpu/` 里存在同名 JSON 即跳过；失败不产生结果文件，重跑自动重试。
+- `--status`：查看默认目录（`价格图片/CPU/`，由脚本位置推导）的进度，不消耗配额；按哈希键统计，待提取清单显示 manifest 原名，非 PNG 文件单独标注；
+- **入口 PNG 验证**：非 `.png` 格式的图该图计失败并提示，不进管线（管线内格式固定 PNG），管线继续跑其他图；
+- **内容哈希键（`content_key()` + `register_key()`）**：进管线时对源图算一次 MD5（分块读取，大文件不占内存），作为全链路唯一键；同时在 `manifest.json` 登记 `键 → 原名`（同键异名进 aliases 别名列表）。哈希只算这一次，之后所有模块引用同一个值（不重复计算）；
+- 断点续跑：`extracted_cpu/{key}.json` 存在即跳过（同内容异名重发 → 相同哈希 → 自动跳过，免费去重）；失败不产生结果文件，重跑自动重试。
+
+#### 3.1.1 内容寻址键的性质（方案 B）
+
+- **稳定性**：图片字节不变 → 哈希永不变（改名、移动、复制均不影响）。
+  注意：哈希对**文件字节**敏感而非画面像素——重新保存/转码/用工具"优化"会让
+  画面相同但字节不同 → 新键。图片拿到手后原样放目录，不要另存；
+- **唯一性**：不同内容 → 不同哈希（2^-128 量级，可视为零碰撞）。两张不同的图
+  恰好同名 → 哈希不同 → 永不歧义；同一张图异名重发 → 哈希相同 → 自动去重；
+- **原子性**：`extracted_cpu/{key}.json` 是唯一检查点，只在全链路成功后落盘。
+  中断/出错 → 无 JSON → 重跑重走流程（裁剪/OCR 缓存命中省钱，只重调 LLM）；
+  不存在"JSON 已存在但后半部分没完成"的状态；
+- **性能**：每次运行重算全部图哈希（全量 316 张约几秒，可忽略）；只有哈希
+  无对应 JSON 的新图才走 OCR/LLM。图量极大时可加"文件名+mtime → 哈希"索引，
+  当前规模不必；
+- **manifest**：`output_cpu/manifest.json`，键为哈希、值为原名（同名重复登记
+  去重；异名升级为 `{name, aliases[]}`）。反向溯源查它；随 DB 备份；丢失可用
+  源图重算哈希重建（正向永不依赖 manifest）。
+
+**存量迁移说明**：现有 316 张 CPU 图的文件名**本来就是内容 MD5**（100% 命中验证），
+新旧键数值完全等价——存量产物（JSON/OCR 缓存/裁剪缓存）无需任何迁移，直接兼容。
 
 ### 3.2 三段式锚点裁剪（`crop_cpu_image()`）
 
@@ -172,15 +217,15 @@ extracted_cpu/<图片名>.json           # 输出：每张图一份 JSON（断�
 
 三段裁剪的动机：旧版固定 6.2%/42% 会把右侧表格 917~955px 的窄边切进 CPU 裁剪图、表头行露出"台式硬盘/金士顿内存"等其他产品列头（LLM 幻觉源）。三段式沿表格线切割后干扰源消除，0b5a 上准确率从 87.8% 提升到 92.7%（详见第 5 节）。
 
-裁剪结果缓存到 `crop_cache/`，改裁剪逻辑后需手动清空该目录才会生效。
+裁剪结果缓存到 `crop_cache/{key}.png`（内容寻址键），改裁剪逻辑后需手动清空该目录才会生效。
 
 #### 3.2.1 表级竖向分块（`split_table_blocks()`，切块方案已定稿）
 
-三段裁剪的产物（`crop_cache/<图片名>.png`，宽高比约 1.58~1.88）在基础上做**两级左右分块**，
+三段裁剪的产物（`crop_cache/{哈希键}.png`，宽高比约 1.58~1.88）在基础上做**两级左右分块**，
 每块 = 完整的子表（型号列 + 该表的全部价格列，表内信息不拆散）：
 
 ```text
-crop_cache/<图片名>.png（三段裁剪产物）
+crop_cache/{哈希键}.png（三段裁剪产物）
   → 第二层 @ CPU 区/硬盘区分界竖线 x/w≈0.397（0.392~0.405，纯内存不落盘）
   │    ├─ left：全部 CPU 子表（处理器表 + 15/14 表 + AMD 表，CPU 价格列全在）
   │    └─ right：台式硬盘/内存等非 CPU 区域（干扰源，不参与提取，不落盘）
@@ -216,8 +261,15 @@ cut point 均相对分界竖线偏移 +2px，落在表间隙内（表内信息�
 - 已知小瑕疵：LR 块内 AMD 表的型号列在 HTML rowspan 展开后重复两遍（价格列无错，
   LLM 提取层取唯一值过滤）。
 
-分块产物前缀命名平铺缓存到 `crop_cache/`（`<图片名>_LL.png` / `<图片名>_LR.png`，与第一层裁剪图同目录，
+分块产物前缀命名平铺缓存到 `crop_cache/`（`{哈希键}_LL.png` / `{哈希键}_LR.png`，与第一层裁剪图同目录，
 无子目录层级）；第二层切分为纯内存中间操作，不落盘。改分块逻辑后需手动清空对应 `_LL/_LR` 文件。
+
+分块检测的多候选修正（实测定稿）：left 块内在先验范围 (0.50, 0.58) 内可能同时出现
+两根候选竖线（0.536 = 处理器表右边界，0.560 = 15/14 表左边界，全量 101/316 张图
+属此类）——`_find_split()` 取**最靠左**的一根（`cand[0]`），对准处理器表右边界，
+15/14 表左边界比它靠右被自然跳过。曾用 `cand[-1]` 导致 101 张图切错边（选 0.560），
+修复后全量 316 张选出比例分布 0.534~0.539，无一张选到 0.560 侧；全量离线预检
+316/316 两级分块全部成功、0 回退。
 
 ### 3.3 OCR 通道（`ocr_markdown()` + `_ocr_image_to_md()` + `html_table_to_markdown()`）
 
@@ -227,7 +279,7 @@ cut point 均相对分界竖线偏移 +2px，落在表间隙内（表内信息�
 - **关键参数**：`temperature=0`（确定性输出的关键）、`max_tokens=16384`（不足会截断）；
 - **格式统一**：模型输出 HTML 表格 → `html_table_to_markdown()` 转成 Markdown 管道表格（处理 rowspan/colspan 展开、剥 HTML 标签、竖线转义）；
 - **实现分层**：`_ocr_image_to_md(image_path, cache_name)` 是单图 OCR 通道（缓存检查 → POST → 转 Markdown → 按 `cache_name` 写缓存）；`ocr_markdown()` 负责分块调度与合并；
-- **缓存**：同图同输出（确定性），两块分别缓存到 `ocr_cache/<图片名>_LL.md` / `<图片名>_LR.md`，命中直接复用；改 OCR 行为需清对应缓存；
+- **缓存**：同图同输出（确定性），两块分别缓存到 `ocr_cache/{哈希键}_LL.md` / `{哈希键}_LR.md`，命中直接复用；改 OCR 行为需清对应缓存；
 - **失败语义**：任一块服务调用失败/返回空 → 抛出 `RuntimeError`（消息带 `_LL`/`_LR` 区分块），该图计入失败清单、不写缓存、**不降级**（提示词以 OCR 为主，无 OCR 无法按当前契约提取）。
 
 #### 3.3.1 两块 OCR 结果的合并方式
@@ -291,8 +343,8 @@ OCR 输出特性（0a04 基准实测，整图 OCR 时期的结论，分块后数
 - 通过 `openai` SDK 调用 `llm_config.json` 配置的 OpenAI 兼容接口（当前 glm-5.3-flash）；
 - 消息形态：完整裁剪图（`image_url` base64，含横幅日期，提供 `sheet_date` 与消歧裁决）+ 提示词（指令 + 合并后的 LL/LR OCR 数据，多模态双内容）；
 - `temperature` 兼容降级重试、Markdown 代码围栏剥离、超时默认 300 秒；
-- 后处理：只保留 `category=="CPU"`（双保险过滤）+ 附 `source_image` 溯源字段；
-- 落盘 `extracted_cpu/<图片名>.json`，即断点续跑检查点。
+- 后处理：只保留 `category=="CPU"`（双保险过滤）+ 附 `source_image = "{key}.png"` 溯源字段（哈希 + 固定 .png，反查原名走 manifest）；
+- 落盘 `extracted_cpu/{key}.json`，即唯一断点续跑检查点（全链路成功后原子落盘）。
 
 ### 3.6 与其他类目的隔离
 
@@ -323,7 +375,7 @@ python database/load_cpu.py --status                     # 查看库内 CPU 数�
 ### 处理流程
 
 1. **预验证（入库前规则校验，不通过则跳过该条并记录原因）**：
-   - `source_image` 非空（数据库溯源/幂等键，随记录写入 quotes）
+   - `source_image` 非空（数据库溯源/幂等键，随记录写入 quotes；值为 `"{哈希键}.png"`，内容寻址溯源）
    - `sheet_date` 可解析为 YYYY-MM-DD（norm_date）
    - `product_name` 非空
    - `price` 可转数字、> 0、在 1..200000、不含 * / X 标记
@@ -346,7 +398,9 @@ python database/load_cpu.py --status                     # 查看库内 CPU 数�
 | `quotes` | `id`、`product_key`、`date_key`、`price`、`price_type`、`source_image` |
 
 索引：`idx_q_prod_date(product_key, date_key)`、`idx_p_cat_vendor(category, vendor)`；
-`source_image` 是可追溯性要求和幂等键，不要删除。
+`source_image` 是可追溯性要求和幂等键，不要删除。**当前存哈希名**（`"{哈希键}.png"`，
+内容寻址）：幂等删除（按 source_image 删旧插新）键唯一性有数学保证；反查原文件名
+查 `output_cpu/manifest.json`。
 
 ---
 
@@ -389,11 +443,13 @@ python database/load_cpu.py --status                     # 查看库内 CPU 数�
 2. **两块 OCR 合并是纯文本拼接**：LL/LR 保持两张独立表格 + 标注头，不做跨块并表（行数/colspan 无法可靠对齐，强行并表会错位串价）；
 3. **日期不在 OCR 数据区内**：横幅随分块被排除，`sheet_date` 依赖随消息附带的完整裁剪图（原图标题）；若日后改为不传图或只传分块图，日期提取会失效；
 4. **CPU 结果通过 `load_cpu.py` 入库**（见第 4 节）；通用管线的 mem/TF 结果走 `clean_load.py`（读取 `extracted/`），两条入库路径互不干扰；
-5. **缓存不自动失效**：`output_cpu/` 下的 `crop_cache/`（裁剪图 `<图片名>.png` + 分块图 `<图片名>_LL/_LR.png`）、`ocr_cache/`（OCR Markdown `<图片名>_LL/_LR.md`）、`extracted_cpu/`（结果）缓存都按文件名复用。改裁剪逻辑 → 清 `crop_cache/`；改分块逻辑 → 清 `crop_cache/` 下对应 `_LL/_LR` 文件及 `ocr_cache/` 对应分块 md；改 OCR prompt → 清 `ocr_cache/`；改提示词 → 删 `extracted_cpu/` 对应 JSON；
+5. **缓存不自动失效**：`output_cpu/` 下的 `crop_cache/`（裁剪图 `{哈希键}.png` + 分块图 `{哈希键}_LL/_LR.png`）、`ocr_cache/`（OCR Markdown `{哈希键}_LL/_LR.md`）、`extracted_cpu/`（结果 JSON）全部按**内容哈希键**复用。改裁剪逻辑 → 清 `crop_cache/`；改分块逻辑 → 清 `crop_cache/` 下对应 `_LL/_LR` 文件及 `ocr_cache/` 对应分块 md；改 OCR prompt → 清 `ocr_cache/`；改提示词 → 删 `extracted_cpu/` 对应 JSON；
 6. **锚点/分块检测的适用前提**：左右边界与分块分界竖线检测基于当前模板（316 张全部成功）；若未来出现完全不同版式的报价单，检测会回退固定比例或失败，需人工检查；
 7. **白名单联动**：CPU 管线白名单内嵌在 `OCR主_指令.txt`，通用管线白名单在 `cpu_watchlist.json`，更新型号策略时需同步两处；
 8. **配额与安全**：批量提取和导入会真实消耗 LLM 配额、传输图片、写入数据库，执行前需明确授权；`llm_config.json` 含敏感凭据，严禁外泄；
-9. **失败处理原则**：失败图计入清单、重跑重试，绝不伪造成功，也不因 LLM 提取不确定而补造价格——宁可漏掉不确定行，也不跨行/跨列/跨产品推断。
+9. **失败处理原则**：失败图计入清单、重跑重试，绝不伪造成功，也不因 LLM 提取不确定而补造价格——宁可漏掉不确定行，也不跨行/跨列/跨产品推断；
+10. **图片字节不能变**：哈希对文件字节敏感——图片拿到手后**原样放目录**，不要重新保存/转码/用工具"优化"（画面相同但字节不同 → 新哈希 → 当作新图重新提取）；
+11. **manifest 是关键资产**：`output_cpu/manifest.json` 承担唯一的"哈希 → 原名"反查，随 DB 一起备份；丢失可用源图重算哈希重建（manifest 登记正向、别名列表会重新积累）；
 
 **超时配置**（`llm_config.json`，防止脚本卡住）：
 - `timeout_seconds: 300` —— LLM 调用超时；
@@ -402,6 +458,47 @@ python database/load_cpu.py --status                     # 查看库内 CPU 数�
 - OCR 服务地址也在 `llm_config.json` 的 `ocr_base_url` 配置（换 OCR 模型时改这里，兼容环境变量 `OCR_BASE_URL` 覆盖）。
 
 **并发**：默认 2（`MAX_WORKERS = 2`），`--workers N` 可调，上限 6（`MAX_WORKERS_LIMIT`）——OCR/LLM 服务承压限制，超限自动钳到 6。
+
+**优雅停止**：第一次 Ctrl+C → 置位停止标志，不再提交新图，等在跑的图完成（每图约 40~60s）后正常写盘、打印统计、记录进度日志后退出；第二次 Ctrl+C → 强制退出（未完成图下次重跑自动重试）。
+
+---
+
+## 6.1 存储结构（内容寻址键，方案 B 定稿）
+
+```text
+output_cpu/
+  manifest.json                  ← 哈希 → 原名映射（管线自动登记，随 DB 备份）
+  crop_cache/
+    {哈希键}.png                 ← 第一层裁剪图
+    {哈希键}_LL.png              ← 处理器表块
+    {哈希键}_LR.png              ← 15/14+AMD 块
+  ocr_cache/
+    {哈希键}_LL.md               ← LL 块 OCR 转写
+    {哈希键}_LR.md               ← LR 块 OCR 转写
+  extracted_cpu/
+    {哈希键}.json                ← 最终结果（source_image = "{哈希键}.png"）
+  extract_cpu_progress.log       ← 进度日志（总进度按哈希键统计）
+
+cpumem.db: quotes.source_image = "{哈希键}.png"
+```
+
+一根键贯穿到底：源图算出哈希后，裁剪、分块、OCR、JSON、DB 全部用同一个键，
+任何一环看到它都能对应到同一张源图。反向溯源（从产物/DB 找原文件）查 manifest；
+自校验：对原文件重算 MD5 应等于键。
+
+```text
+【正向：从源到产物，一根键贯穿】
+价格图片/CPU/微信图片_20260424.jpg（文件名任意，永不被修改）
+  │ 算 MD5 → key（全链路唯一键）
+  ▼
+crop_cache/{key}.png / {key}_LL.png / {key}_LR.png
+ocr_cache/{key}_LL.md / {key}_LR.md
+extracted_cpu/{key}.json（source_image = "{key}.png"）
+quotes.source_image = "{key}.png"
+
+【反向：从产物反查源，一一对应】
+看到任一环节的 {key} → 查 manifest.json[{key}] → 原文件名
+```
 
 ---
 
