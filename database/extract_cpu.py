@@ -47,6 +47,8 @@ import glob
 import re
 import time
 import base64
+import hashlib
+import signal
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -69,6 +71,15 @@ PROGRESS_LOG = os.path.join(OUTPUT_DIR, "extract_cpu_progress.log")
 MANIFEST_PATH = os.path.join(OUTPUT_DIR, "manifest.json")   # 哈希 → 原名映射（随 DB 备份）
 
 MAX_WORKERS = 2    # 默认并发数（可用 --workers N 调整）
+_MANIFEST_LOCK = threading.Lock()   # manifest 读改写互斥（多 worker 并发保护）
+
+
+def _write_manifest(manifest: dict) -> None:
+    """原子写 manifest（临时文件 + os.replace），中断不会留下截断 JSON。"""
+    tmp = MANIFEST_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, MANIFEST_PATH)
 
 
 # ============ 内容寻址键（方案 B：哈希贯穿全链路） ============
@@ -76,7 +87,6 @@ MAX_WORKERS = 2    # 默认并发数（可用 --workers N 调整）
 def content_key(img_path: str) -> str:
     """计算图片内容的 MD5 作为管线内部键（分块读取，大文件不占内存）。
     内容寻址：字节不变 → 键不变（改名/移动/复制无影响）；字节变 → 新键。"""
-    import hashlib
     h = hashlib.md5()
     with open(img_path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
@@ -85,34 +95,38 @@ def content_key(img_path: str) -> str:
 
 
 def load_manifest() -> dict:
-    """读取 哈希 → 原名 映射表；不存在返回空 dict。"""
+    """读取 哈希 → 原名 映射表；不存在返回空 dict；损坏时告警并按空映射继续
+    （避免 status/提取全量崩溃，下次登记会重建）。"""
     if os.path.exists(MANIFEST_PATH):
-        with open(MANIFEST_PATH, encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(MANIFEST_PATH, encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"警告: manifest.json 损坏（{e}），按空映射继续，下次登记会重建", file=sys.stderr)
+            return {}
     return {}
 
 
 def register_key(img_path: str) -> str:
     """返回源图的内容哈希键，并在 manifest 中登记 键 → 原名。
-    同键已登记同名 → 不重复写；已登记异名 → 记入 aliases 别名列表。"""
+    同键已登记同名 → 不重复写；已登记异名 → 记入 aliases 别名列表。
+    读改写由 _MANIFEST_LOCK 互斥，写入经 _write_manifest 原子替换。"""
     key = content_key(img_path)
     orig = os.path.basename(img_path)
-    manifest = load_manifest()
-    entry = manifest.get(key)
-    if entry is None:
-        manifest[key] = orig
-        with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
-            json.dump(manifest, f, ensure_ascii=False, indent=2)
-    elif isinstance(entry, str) and entry != orig:
-        # 同内容异名：同一张图，升级为 {name, aliases} 结构保留完整线索
-        manifest[key] = {"name": entry, "aliases": [orig]}
-        with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
-            json.dump(manifest, f, ensure_ascii=False, indent=2)
-    elif isinstance(entry, dict) and orig != entry.get("name") \
-            and orig not in entry.get("aliases", []):
-        entry["aliases"].append(orig)
-        with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
-            json.dump(manifest, f, ensure_ascii=False, indent=2)
+    with _MANIFEST_LOCK:
+        manifest = load_manifest()
+        entry = manifest.get(key)
+        if entry is None:
+            manifest[key] = orig
+            _write_manifest(manifest)
+        elif isinstance(entry, str) and entry != orig:
+            # 同内容异名：同一张图，升级为 {name, aliases} 结构保留完整线索
+            manifest[key] = {"name": entry, "aliases": [orig]}
+            _write_manifest(manifest)
+        elif isinstance(entry, dict) and orig != entry.get("name") \
+                and orig not in entry.get("aliases", []):
+            entry["aliases"].append(orig)
+            _write_manifest(manifest)
     return key
 
 
@@ -129,7 +143,7 @@ def load_prompt(fname: str, default: str = "") -> str:
 # ============ 裁剪预处理 ============
 
 def crop_cpu_image(img_path: str, key: str) -> str:
-    """三段式锚点裁剪（内容寻址：缓存键 = 内容哈希 key）。：像素检测表格线位置，逐图自适应裁剪。
+    """三段式锚点裁剪（内容寻址：缓存键 = 内容哈希 key）：像素检测表格线位置，逐图自适应裁剪。
 
     替代旧版固定 6.2%/42% 裁剪（会切进右侧表格窄边、露出其他产品列头）。
     检测到的锚点在全部 316 张 CPU 图片上验证：
@@ -139,8 +153,11 @@ def crop_cpu_image(img_path: str, key: str) -> str:
 
     三段裁剪：
       段1 横幅区：0 ~ 横幅底部，x 裁到 55%（保住完整日期）
-      段2 表头行：横幅底 ~ +3.5%，x 裁到 CPU 右边界锚点（消除其他产品列头）
-      段3 表格主体：表头下 ~ 底部，x 到 CPU 右边界锚点 +8px（沿表格线切割）
+      段2 表头行：横幅底 ~ +3.5%，x 裁到 CPU 右边界锚点 +2px（只留边界竖线本身，
+          消除相邻子表残字）
+      段3 表格主体：表头下 ~ 底部，x 到 CPU 右边界锚点 +2px
+    注意：画布保留全宽 w——SPLIT1/SPLIT2 分块先验（0.397/0.536）按全宽画布标定，
+    收紧画布会使分界比例失配、把 CPU 表切断；若要收紧画布须同步重标分块先验。
 
     结果缓存到 crop_cache/，已存在直接复用。返回裁剪图路径。
     """
@@ -176,8 +193,10 @@ def crop_cpu_image(img_path: str, key: str) -> str:
 
     head_h = int(h * 0.035)  # 表头行高度
     s1 = img.crop((0, 0, int(w * 0.55), banner_end))
-    s2 = img.crop((0, banner_end, right + 8, banner_end + head_h))
-    s3 = img.crop((0, banner_end + head_h, right + 8, h))
+    # 切点 right+2：只保留边界竖线本身，不再切进相邻子表的残字
+    s2 = img.crop((0, banner_end, right + 2, banner_end + head_h))
+    s3 = img.crop((0, banner_end + head_h, right + 2, h))
+    # 画布保留全宽 w：SPLIT1/SPLIT2 分块先验按全宽画布标定，收紧会失配
     canvas = Image.new("RGB", (w, s1.size[1] + s2.size[1] + s3.size[1]), "white")
     canvas.paste(s1, (0, 0))
     canvas.paste(s2, (0, s1.size[1]))
@@ -416,8 +435,15 @@ def load_config() -> dict:
     return cfg
 
 
+def _is_transient(e: Exception) -> bool:
+    """超时/连接类瞬时错误（值得重试一次）。"""
+    s = str(e).lower()
+    return any(k in s for k in ("timeout", "timed out", "connection", "temporarily", "rate limit"))
+
+
 def call_llm(crop_path: str, prompt: str, use_image: bool = True) -> dict:
-    """调用多模态 LLM，返回解析后的 JSON。默认随消息传裁剪图。"""
+    """调用多模态 LLM，返回解析后的 JSON。默认随消息传裁剪图。
+    超时/连接类瞬时错误重试一次；temperature 不被支持时去参数重试。"""
     from openai import OpenAI
 
     cfg = load_config()
@@ -443,15 +469,26 @@ def call_llm(crop_path: str, prompt: str, use_image: bool = True) -> dict:
     try:
         resp = client.chat.completions.create(temperature=cfg.get("temperature", 0), **kwargs)
     except Exception as e:
-        if "temperature" in str(e).lower():
-            resp = client.chat.completions.create(**kwargs)  # temperature 不被支持时用默认值
+        emsg = str(e).lower()
+        if "temperature" in emsg:
+            # temperature 不被支持：去参数重试；若为瞬时错误再补一次重试
+            try:
+                resp = client.chat.completions.create(**kwargs)
+            except Exception as e2:
+                if not _is_transient(e2):
+                    raise
+                resp = client.chat.completions.create(**kwargs)
+        elif _is_transient(e):
+            # 超时/连接抖动：原参数重试一次
+            resp = client.chat.completions.create(temperature=cfg.get("temperature", 0), **kwargs)
         else:
             raise
 
     text = (resp.choices[0].message.content or "").strip()
     if text.startswith("```"):
         text = text.split("```")[1]
-        if text.startswith("json"):
+        text = text.lstrip()
+        if text[:4].lower() == "json":   # ```json 与 ```JSON 均兼容
             text = text[4:]
     return json.loads(text)
 
@@ -471,13 +508,13 @@ def extract_one(img_path: str) -> tuple[str, bool, str]:
     OCR 失败/返回空时抛出 RuntimeError，该图计为失败（不降级纯视觉）。"""
     # 入口验证：管线内格式固定 PNG
     if os.path.splitext(img_path)[1].lower() != ".png":
-        return (os.path.basename(img_path)[:16], False,
+        return (os.path.basename(img_path), False,
                 f"非 PNG 格式（{os.path.splitext(img_path)[1]}），请转换为 PNG 后放入目录")
     try:
         key = register_key(img_path)
     except Exception as e:
-        return (os.path.basename(img_path)[:16], False, f"哈希计算/manifest 登记失败: {e}")
-    name = key[:16]
+        return (os.path.basename(img_path), False, f"哈希计算/manifest 登记失败: {e}")
+    name = key   # 返回完整哈希键（展示时截断；非 PNG 返回 basename），供失败清单反查 manifest
     out_path = os.path.join(OUT_DIR, key + ".json")
     if os.path.exists(out_path):
         return (name, True, "跳过（已存在）")
@@ -492,8 +529,11 @@ def extract_one(img_path: str) -> tuple[str, bool, str]:
         # 只保留 CPU 类目的记录（双保险：白名单外或 LLM 串区的记录剔除）
         data["products"] = [p for p in data.get("products", [])
                             if str(p.get("category", "")) == "CPU"]
-        with open(out_path, "w", encoding="utf-8") as f:
+        # 原子落盘（临时文件 + os.replace）：中断不会留下被断点续跑误认的截断 JSON
+        tmp_path = out_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, out_path)
         n = len(data.get("products", []))
         return (name, True, f"完成 ({n} 条, {time.time()-t0:.0f}s)")
     except Exception as e:
@@ -512,26 +552,37 @@ def collect_images(target: str) -> list[str] | None:
     - 无图片或路径无效：打印错误并返回 None
     """
     if os.path.isfile(target):
-        if os.path.splitext(target)[1].lower() not in IMG_EXTS:
-            print(f"错误: {target} 不是图片文件（支持 {', '.join(IMG_EXTS)}）")
+        ext = os.path.splitext(target)[1].lower()
+        if ext != ".png":
+            # 单张非 PNG 同样在收集阶段拦截（extract_one 也会拒绝），提前提示转换
+            print(f"错误: {target} 不是 PNG 文件（管线仅支持 PNG，其他格式请先转换）")
             return None
         return [os.path.abspath(target)]
     if os.path.isdir(target):
         images = []
+        skipped_non_png = []
         for root, _dirs, files in os.walk(target):
             for f in sorted(files):
-                if os.path.splitext(f)[1].lower() in IMG_EXTS:
+                ext = os.path.splitext(f)[1].lower()
+                if ext == ".png":
                     images.append(os.path.join(root, f))
+                elif ext in IMG_EXTS:
+                    skipped_non_png.append(os.path.join(root, f))
         images.sort()
+        # 收集阶段即过滤非 PNG（extract_one 会拒绝），提前提示转换
+        if skipped_non_png:
+            print(f"提示: 跳过 {len(skipped_non_png)} 个非 PNG 文件（管线仅支持 PNG，请先转换）:")
+            for p in skipped_non_png[:5]:
+                print(f"  - {p}")
+            if len(skipped_non_png) > 5:
+                print(f"  ... 等共 {len(skipped_non_png)} 个")
         if not images:
-            print(f"错误: 目录 {target} 下没有找到图片文件（支持 {', '.join(IMG_EXTS)}）")
+            print(f"错误: 目录 {target} 下没有找到 PNG 图片（支持 .png；其他格式请先转换）")
             return None
         return images
     print(f"错误: 路径不存在: {target}")
     return None
 
-
-import signal
 
 
 def main():
@@ -541,7 +592,7 @@ def main():
         return
 
     # --out-dir <目录>：输出目录（默认 database/output_cpu/，与脚本同级）
-    global OUTPUT_DIR, OUT_DIR, CROP_DIR, OCR_CACHE_DIR, PROGRESS_LOG
+    global OUTPUT_DIR, OUT_DIR, CROP_DIR, OCR_CACHE_DIR, PROGRESS_LOG, MANIFEST_PATH
     if "--out-dir" in sys.argv:
         i = sys.argv.index("--out-dir")
         if i + 1 >= len(sys.argv):
@@ -552,6 +603,7 @@ def main():
         CROP_DIR = os.path.join(OUTPUT_DIR, "crop_cache")
         OCR_CACHE_DIR = os.path.join(OUTPUT_DIR, "ocr_cache")
         PROGRESS_LOG = os.path.join(OUTPUT_DIR, "extract_cpu_progress.log")
+        MANIFEST_PATH = os.path.join(OUTPUT_DIR, "manifest.json")   # manifest 与产物同步切目录
 
     # 创建输出目录结构（全部管线产物都写入其中）
     for d in (OUT_DIR, CROP_DIR, OCR_CACHE_DIR):
@@ -597,12 +649,19 @@ def main():
         return
 
     print(f"[CPU 管线] 共 {len(images)} 张图片，并发数: {workers}")
-    done = sum(1 for img in images
-               if os.path.exists(os.path.join(OUT_DIR, os.path.splitext(os.path.basename(img))[0] + ".json")))
+    # 断点统计与 --status 同口径：按内容哈希键检查（basename 时代结果不计入）
+    done = 0
+    for img in images:
+        try:
+            if os.path.exists(os.path.join(OUT_DIR, content_key(img) + ".json")):
+                done += 1
+        except Exception:
+            pass
     print(f"断点续跑: 已完成 {done} 张，待提取 {len(images) - done} 张")
 
     ok = fail = skipped = 0
     failed_list = []
+    zero_list = []
     lock = threading.Lock()
     progress = {"n": 0}
 
@@ -615,6 +674,8 @@ def main():
                 skipped += 1
             elif success:
                 ok += 1
+                if msg.startswith("完成 (0 条"):
+                    zero_list.append(name)   # LLM 返回空 products，提醒人工核图
             else:
                 fail += 1
                 failed_list.append(name)
@@ -628,8 +689,9 @@ def main():
             stop.set()
             print("\n[CPU 管线] 收到 Ctrl+C，正在优雅停止：不再开始新图，等待在跑的图完成（再按一次 Ctrl+C 强制退出）...", flush=True)
         else:
-            print("\n[CPU 管线] 强制退出。", flush=True)
-            raise KeyboardInterrupt
+            # 第二次 Ctrl+C：真强制退出（executor __exit__ 会等在跑任务，必须直接终止进程）
+            print("\n[CPU 管线] 强制退出（进度日志未写入；未完成的图下次重跑会自动重试）。", flush=True)
+            os._exit(1)
     
     signal.signal(signal.SIGINT, _sigint)
     
@@ -656,7 +718,8 @@ def main():
                 name, success, msg = fut.result()
                 report(name, success, msg)
         except KeyboardInterrupt:
-            print("\n[CPU 管线] 强制退出。未完成的图下次重跑会自动重试。", flush=True)
+            print("\n[CPU 管线] 强制退出（进度日志未写入）。", flush=True)
+            os._exit(1)
     
     if stop.is_set():
         print(f"\n[CPU 管线] 已优雅停止: 新提取 {ok}, 跳过 {skipped}, 失败 {fail}，剩余待提取 {len(images) - ok - skipped - fail} 张，结果存于 {OUT_DIR}")
@@ -664,19 +727,27 @@ def main():
         print(f"\n[CPU 管线] 提取完成: 新提取 {ok}, 跳过 {skipped}, 失败 {fail}，结果存于 {OUT_DIR}")
     if failed_list:
         print("失败清单（重跑 extract_cpu.py 会自动重试）:")
+        failed_manifest = load_manifest()
         for n in failed_list[:10]:
-            print(f"  - {n}")
+            entry = failed_manifest.get(n)
+            disp = entry.get("name") if isinstance(entry, dict) else (entry if entry else n)
+            print(f"  - {disp}")
         if len(failed_list) > 10:
             print(f"  ... 等共 {len(failed_list)} 张")
-    # 总进度按内容哈希统计（与检查点键一致；非 PNG 不计入完成）
-    manifest = load_manifest()
+    if zero_list:
+        print("0 条结果清单（LLM 返回空 products，建议人工核图）:")
+        zero_manifest = load_manifest()
+        for n in zero_list[:10]:
+            entry = zero_manifest.get(n)
+            disp = entry.get("name") if isinstance(entry, dict) else (entry if entry else n)
+            print(f"  - {disp}")
+        if len(zero_list) > 10:
+            print(f"  ... 等共 {len(zero_list)} 张")
+    # 总进度按内容哈希键统计（与检查点 {key}.json 一致；无需查 manifest）
     total_done = 0
     for img in images:
-        if os.path.splitext(img)[1].lower() != ".png":
-            continue
         try:
-            k = manifest.get(content_key(img))
-            if k and os.path.exists(os.path.join(OUT_DIR, k + ".json")):
+            if os.path.exists(os.path.join(OUT_DIR, content_key(img) + ".json")):
                 total_done += 1
         except Exception:
             pass
@@ -693,15 +764,27 @@ def status():
                 images.append(os.path.join(root, f))
     images.sort()
     manifest = load_manifest()
-    done = {os.path.splitext(os.path.basename(p))[0]
-            for p in glob.glob(os.path.join(OUT_DIR, "*.json"))}
+    all_done = {os.path.splitext(os.path.basename(p))[0]
+                for p in glob.glob(os.path.join(OUT_DIR, "*.json"))}
+    # 已提取只统计与当前图片哈希匹配的结果（陈旧结果单独计数，避免偏大）
+    png_keys = set()
+    for i in images:
+        if os.path.splitext(i)[1].lower() == ".png":
+            try:
+                png_keys.add(content_key(i))
+            except Exception:
+                pass
+    done = all_done & png_keys
+    stale = len(all_done) - len(done)
     pending = [i for i in images
                if os.path.splitext(i)[1].lower() == ".png"
-               and content_key(i) not in done]
+               and content_key(i) not in all_done]
     non_png = [os.path.basename(i) for i in images
                if os.path.splitext(i)[1].lower() != ".png"]
     print(f"[CPU 管线] 图片总数: {len(images)}")
     print(f"已提取: {len(done)}")
+    if stale:
+        print(f"陈旧结果（哈希不在当前图片中，不占用断点）: {stale}")
     print(f"待提取: {len(pending)}")
     if non_png:
         print(f"非 PNG（提取时会报错）: {len(non_png)}")
