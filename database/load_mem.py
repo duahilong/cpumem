@@ -1,31 +1,28 @@
 # -*- coding: utf-8 -*-
 """
-CPU 专用数据导入模块 —— 管线最后一步：提取落盘后的数据验证 + 入库。
+MEM 专用数据导入模块 —— 管线最后一步：提取落盘后的数据验证 + 入库。
 
-流程（CPU 管线 S6 落盘之后运行）：
-    1. 读取提取结果 JSON（默认 extract_cpu.py 的输出目录 output_cpu/extracted_cpu/，
+流程（MEM 管线 S7 落盘之后运行）：
+    1. 读取提取结果 JSON（默认 extract_mem.py 的输出目录 output_mem/extracted_mem/，
        支持指定单份文件、目录或 --out-dir 对齐自定义输出目录）
     2. 预验证（入库前的规则校验，不通过则跳过该条并记录原因）：
        - source_image 非空（数据库溯源/幂等键，随记录写入 quotes）
        - sheet_date 可解析（norm_date）
        - product_name 非空
        - price 可转数字、> 0、在 1..200000、不含 * / X
-       - price_type 在散片/原盒枚举内
-       - category 非空
+       - price_type 在 单条/套装/默认 枚举内
+       - hardware_type 在枚举表内（非法时按 category + 型号名兜底推断后再入库）
     3. 幂等入库：先删除同 source_image 的旧 quotes 记录，再写入
-       products（型号不存在时插入）/ dates / quotes 三表
+       products（category 按记录实际值）/ dates / quotes（含 hardware_type）三表
     4. 库内去重：同 (date_key, product_key, price_type) 多条时，
-       同价只留一条；异价记入 conflicts_cpu.json 等人工确认
+       同价只留一条；异价记入 load_mem_conflicts.json 等人工确认
 
 用法：
-    python load_cpu.py                              # 默认导入 output_cpu/extracted_cpu/
-    python load_cpu.py extracted_cpu                # 导入指定目录
-    python load_cpu.py extracted_cpu/0a04….json     # 导入指定单份
-    python load_cpu.py --out-dir ./my_out           # 对齐 extract_cpu.py 的自定义输出目录
-    python load_cpu.py --status                     # 查看库内 CPU 数据统计
-
-可编程调用：run_import(out_dir=None) 返回统计 dict；extract_cpu.py --db 在管线
-结束时调用它实现"提取+入库一条命令"（做法 B，复用本模块逻辑不重写）。
+    python load_mem.py                              # 默认导入 output_mem/extracted_mem/
+    python load_mem.py extracted_mem                # 导入指定目录
+    python load_mem.py extracted_mem/<key>.json     # 导入指定单份
+    python load_mem.py --out-dir ./my_out           # 对齐 extract_mem.py 的自定义输出目录
+    python load_mem.py --status                     # 查看库内 MEM 数据统计
 
 配置：数据库路径 database/cpumem.db；清洗规则复用 clean_load.py 的映射表。
 """
@@ -41,18 +38,54 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "cpumem.db")
-# 导入报告/冲突清单等错误输出，默认写入 extract_cpu.py 的输出目录（output_cpu/）
-OUTPUT_DIR = os.path.join(BASE_DIR, "output_cpu")
-CONFLICT_PATH = os.path.join(OUTPUT_DIR, "load_cpu_conflicts.json")
-REPORT_PATH = os.path.join(OUTPUT_DIR, "load_cpu_report.md")
+# 导入报告/冲突清单等错误输出，默认写入 extract_mem.py 的输出目录（output_mem/）
+OUTPUT_DIR = os.path.join(BASE_DIR, "output_mem")
+CONFLICT_PATH = os.path.join(OUTPUT_DIR, "load_mem_conflicts.json")
+REPORT_PATH = os.path.join(OUTPUT_DIR, "load_mem_report.md")
 
 sys.path.insert(0, BASE_DIR)
 from clean_load import (  # 复用清洗映射与规范化函数
     norm_date, norm_vendor, norm_category, norm_price_type, norm_product_key,
-    _create_tables, VENDOR_MAP, CATEGORY_MAP, PRICE_TYPE_MAP,
+    _create_tables,
 )
 
-VALID_PRICE_TYPES = {"散片", "原盒"}
+VALID_PRICE_TYPES = {"单条", "套装", "默认"}
+VALID_HARDWARE_TYPES = {
+    "DDR3", "DDR4", "DDR5", "SSD", "HDD", "GPU", "MB",
+    "PSU", "MON", "CPU", "PERIPH", "CARD", "OTHER",
+}
+
+# hardware_type 兜底推断（与 extract_mem.py 的后处理逻辑一致）
+HARDWARE_ABBR = {
+    "内存": "OTHER",   # 内存需按 DDR 代际细分，由 infer_ddr_type 处理
+    "固态硬盘": "SSD", "机械硬盘": "HDD", "显卡": "GPU", "主板": "MB",
+    "电源": "PSU", "显示器": "MON", "CPU": "CPU", "外设": "PERIPH",
+    "TF卡": "CARD", "SD卡": "CARD", "U盘": "CARD",
+}
+_DDR_RE = re.compile(r"ddr\s*([345])", re.I)
+
+
+def infer_ddr_type(name: str) -> str:
+    """从型号名推断 DDR 代际：显式标记优先，其次频率启发式。"""
+    m = _DDR_RE.search(str(name))
+    if m:
+        return f"DDR{m.group(1)}"
+    m = re.search(r"(\d{3,4})", str(name))
+    if m:
+        freq = int(m.group(1))
+        if 4000 <= freq <= 12000:
+            return "DDR5"
+        if 800 <= freq <= 2133:
+            return "DDR4"
+    return "OTHER"
+
+
+def infer_hardware_type(item: dict) -> str:
+    """按 category 兜底推断 hardware_type：内存按 DDR 代际细分，其余用类别缩写映射。"""
+    category = str(item.get("category", "")).strip()
+    if category == "内存":
+        return infer_ddr_type(item.get("product_name", ""))
+    return HARDWARE_ABBR.get(category, "OTHER")
 
 
 # ============ 预验证 ============
@@ -81,12 +114,21 @@ def validate_record(item: dict, sheet_date_raw) -> tuple[bool, str]:
     if not (1 <= price <= 200000):
         return False, f"price 超出 1..200000: {price}"
 
-    # price_type
-    ptype = norm_price_type(item.get("price_type"))
-    if item.get("price_type") in ("散片", "原盒"):
-        ptype = item["price_type"]
+    # price_type：内存枚举为 单条/套装/默认；未在 PRICE_TYPE_MAP 中的标签（如保固/国行/盒装）拒绝
+    raw_ptype = str(item.get("price_type") or "").strip()
+    ptype = norm_price_type(raw_ptype)
+    if raw_ptype and raw_ptype not in ("单条", "套装", "默认", "套价", ""):
+        return False, f"price_type 非法: {item.get('price_type')!r}"
     if ptype not in VALID_PRICE_TYPES:
         return False, f"price_type 非法: {item.get('price_type')!r}"
+
+    # hardware_type：非法时兜底推断（不拒绝，只补齐）
+    hw = str(item.get("hardware_type") or "").strip()
+    if hw not in VALID_HARDWARE_TYPES:
+        hw = infer_hardware_type(item)
+        if hw not in VALID_HARDWARE_TYPES:
+            hw = "OTHER"
+        item["hardware_type"] = hw   # 回填，入库时使用
 
     # category
     cat = item.get("category")
@@ -119,9 +161,9 @@ _conflicts = {}
 
 
 def dedupe_quotes(conn):
-    """库内去重（load_cpu 版）：同 (date_key, product_key, price_type) 多条时，
+    """库内去重（load_mem 版）：同 (date_key, product_key, price_type) 多条时，
     价格相同 -> 只留一条；价格不同 -> 记录冲突到本模块 _conflicts 字典
-    （逻辑复用 clean_load.dedupe_quotes，但冲突明细归本模块，写入 conflicts_cpu.json）。"""
+    （冲突明细归本模块，写入 load_mem_conflicts.json）。"""
     cur = conn.cursor()
     rows = cur.execute("""
         SELECT id, product_key, date_key, price, price_type, source_image
@@ -161,9 +203,6 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
-_conflicts = {}
-
-
 def import_file(conn: sqlite3.Connection, json_path: str) -> tuple[int, int, int, list]:
     """导入单个提取 JSON：预验证 + 幂等入库。返回 (通过, 跳过, 新型号, 问题明细)。"""
     with open(json_path, encoding="utf-8") as f:
@@ -194,7 +233,6 @@ def import_file(conn: sqlite3.Connection, json_path: str) -> tuple[int, int, int
     if not valid_rows:
         return (passed, skipped, n_prod, problems)
 
-    # 预验证全部通过后才确定日期（保证该文件要么全入要么不入）
     sheet_date = norm_date(sheet_date_raw)
 
     # 幂等：删同 source_image 旧记录
@@ -205,18 +243,22 @@ def import_file(conn: sqlite3.Connection, json_path: str) -> tuple[int, int, int
         price = float(item.get("price"))
         vendor = norm_vendor(item.get("vendor"))
         ptype = norm_price_type(item.get("price_type"))
+        hw = str(item.get("hardware_type") or "OTHER")
 
         pkey = norm_product_key(name, vendor)
         row = cur.execute("SELECT 1 FROM products WHERE product_key=?", (pkey,)).fetchone()
         if not row:
-            # 剥离 product_name 中的规格后缀和描述文字（LLM 偶发拼入）
-            clean_name = re.split(r"\d{1,2}核\d{0,3}线程", name)[0]
-            clean_name = re.split(r"\d+\.\d+", clean_name)[0].strip()
-            clean_name = re.sub(r"（[^）]*奔腾[^）]*）.*$|\([^)]*奔腾[^)]*\).*$", "", clean_name).strip()
+            # 展示名：MEM 保留规格（容量/代际/频率/时序是区分型号的必要信息），
+            # 仅剥离 CPU 类目的规格后缀和描述文字
+            clean_name = str(name).strip()
+            if str(item.get("category", "")).strip() == "CPU":
+                clean_name = re.split(r"\d{1,2}核\d{0,3}线程", clean_name)[0]
+                clean_name = re.split(r"\d+\.\d+", clean_name)[0].strip()
+                clean_name = re.sub(r"（[^）]*奔腾[^）]*）.*$|\([^)]*奔腾[^）]*\).*$", "", clean_name).strip()
             clean_name = clean_name or name
             display = f"{vendor} {clean_name}".strip()
             cur.execute("INSERT INTO products VALUES (?,?,?,?)",
-                        (pkey, display, "CPU", vendor))
+                        (pkey, display, norm_category(item.get("category")), vendor))
             n_prod += 1
 
         cur.execute(
@@ -225,8 +267,8 @@ def import_file(conn: sqlite3.Connection, json_path: str) -> tuple[int, int, int
              int(sheet_date[8:10]), datetime.date.fromisoformat(sheet_date).weekday()))
 
         cur.execute(
-            "INSERT INTO quotes (product_key, date_key, price, price_type, source_image) VALUES (?,?,?,?,?)",
-            (pkey, sheet_date, price, ptype, source_image))
+            "INSERT INTO quotes (product_key, date_key, price, price_type, source_image, hardware_type) VALUES (?,?,?,?,?,?)",
+            (pkey, sheet_date, price, ptype, source_image, hw))
         n_quote += 1
 
     conn.commit()
@@ -235,31 +277,85 @@ def import_file(conn: sqlite3.Connection, json_path: str) -> tuple[int, int, int
 
 # ============ 主流程 ============
 
-def run_import(out_dir: str | None = None) -> dict:
-    """入库主流程（可编程调用）：预验证 → 幂等导入 → 全库去重 → 报告。
-
-    out_dir: 提取结果输出目录（None = 默认 database/output_cpu/extracted_cpu/）；
-    也可指向单份 JSON。冲突清单/报告跟随目标所在输出目录。返回统计 dict：
-      {files, passed, skipped, new_products, quotes, dup_same, conflicts, problems}
-    命令行入口 main() 调用本函数，行为不变；extract_cpu.py --db 也调用它。"""
+def run_import(out_dir: str = None) -> dict:
+    """完整导入主流程（供 extract_mem.py --db 复用，也可由 CLI 直接触发）。
+    返回统计 dict：passed / skipped / new_products / dup_same / conflicts / files。"""
     global CONFLICT_PATH, REPORT_PATH
-    default_dir = os.path.join(BASE_DIR, "output_cpu", "extracted_cpu")
-    target = os.path.abspath(out_dir) if out_dir else default_dir
-    # 错误输出跟随导入目标所在的输出目录
-    conflict_path = os.path.join(os.path.dirname(target), "load_cpu_conflicts.json")
-    report_path = os.path.join(os.path.dirname(target), "load_cpu_report.md")
+    if out_dir:
+        out_dir = os.path.abspath(out_dir)
+    else:
+        out_dir = os.path.join(OUTPUT_DIR, "extracted_mem")
+    conflict_path = os.path.join(os.path.dirname(out_dir), "load_mem_conflicts.json")
+    report_path = os.path.join(os.path.dirname(out_dir), "load_mem_report.md")
+
+    files = load_extracted(out_dir)
+    if not files:
+        return {"passed": 0, "skipped": 0, "new_products": 0,
+                "dup_same": 0, "conflicts": 0, "files": 0}
+
+    conn = get_conn()
+    tp = tpass = tskip = 0
+    all_problems = []
+    for f in files:
+        passed, skipped, n_prod, problems = import_file(conn, f)
+        tp += n_prod
+        tpass += passed
+        tskip += skipped
+        all_problems.extend([(os.path.basename(f),) + p for p in problems])
+
+    dup_same, n_conf = dedupe_quotes(conn)
+    if _conflicts:
+        with open(conflict_path, "w", encoding="utf-8") as f:
+            json.dump(_conflicts, f, ensure_ascii=False, indent=2)
+    conn.close()
+
+    return {"passed": tpass, "skipped": tskip, "new_products": tp,
+            "dup_same": dup_same, "conflicts": n_conf, "files": len(files),
+            "problems": all_problems}
+
+
+def main():
+    if "--status" in sys.argv:
+        status()
+        return
+
+    # 默认导入目标：extract_mem.py 的输出目录（与脚本同级的 output_mem/extracted_mem）
+    # 可用 --out-dir 对齐 extract_mem.py 的自定义输出目录，或显式传入 JSON 文件/目录
+    default_dir = os.path.join(BASE_DIR, "output_mem", "extracted_mem")
+    out_dir = default_dir
+    if "--out-dir" in sys.argv:
+        i = sys.argv.index("--out-dir")
+        if i + 1 < len(sys.argv):
+            out_dir = os.path.abspath(sys.argv[i + 1])
+
+    # 显式传入的 JSON 文件/目录优先；否则使用默认输出目录
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if "--out-dir" in sys.argv:
+        i = sys.argv.index("--out-dir")
+        if i + 1 < len(sys.argv):
+            args = [a for a in args if a != sys.argv[i + 1]]
+    if args:
+        target = args[0]
+    else:
+        target = out_dir
+        print(f"未指定目标，默认导入 {target}")
+
+    # 错误输出跟随导入目标所在的输出目录（与 run_import 口径一致）
+    global CONFLICT_PATH, REPORT_PATH
+    target_dir = target if os.path.isdir(target) else os.path.dirname(os.path.abspath(target))
+    conflict_path = os.path.join(target_dir, "load_mem_conflicts.json")
+    report_path = os.path.join(target_dir, "load_mem_report.md")
 
     files = load_extracted(target)
     if not files:
-        return {"files": 0, "passed": 0, "skipped": 0, "new_products": 0,
-                "quotes": 0, "dup_same": 0, "conflicts": 0, "problems": []}
+        return
 
     print(f"共 {len(files)} 个提取结果文件，目标库: {DB_PATH}")
     conn = get_conn()
 
     tp = tq = tpass = tskip = 0
     all_problems = []
-    file_stats = []   # (文件名, 总条数, 通过, 跳过, 新型号, 问题列表)
+    file_stats = []
     for i, f in enumerate(files, 1):
         passed, skipped, n_prod, problems = import_file(conn, f)
         data = json.load(open(f, encoding='utf-8'))
@@ -291,7 +387,7 @@ def run_import(out_dir: str | None = None) -> dict:
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     lines = [
-        f"# CPU 数据导入报告",
+        "# MEM 数据导入报告",
         "",
         f"- **导入时间**：{now}",
         f"- **导入目标**：`{target}`",
@@ -341,36 +437,6 @@ def run_import(out_dir: str | None = None) -> dict:
     print(f"\n导入报告已写入: {report_path}")
 
     print(f"\n导入完成: 预验证通过 {tpass}, 跳过 {tskip}, 新增型号 {tp}")
-    return {"files": len(files), "passed": tpass, "skipped": tskip,
-            "new_products": tp, "quotes": tq, "dup_same": dup_same,
-            "conflicts": n_conf, "problems": all_problems}
-
-
-def main():
-    if "--status" in sys.argv:
-        status()
-        return
-
-    # 默认导入目标：extract_cpu.py 的输出目录（与脚本同级的 output_cpu/extracted_cpu）
-    # 可用 --out-dir 对齐 extract_cpu.py 的自定义输出目录，或显式传入 JSON 文件/目录
-    default_dir = os.path.join(BASE_DIR, "output_cpu", "extracted_cpu")
-    out_dir = default_dir
-    if "--out-dir" in sys.argv:
-        i = sys.argv.index("--out-dir")
-        if i + 1 < len(sys.argv):
-            out_dir = os.path.abspath(sys.argv[i + 1])
-
-    # 显式传入的 JSON 文件/目录优先；否则使用默认输出目录
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if "--out-dir" in sys.argv:
-        i = sys.argv.index("--out-dir")
-        if i + 1 < len(sys.argv):
-            args = [a for a in args if a != sys.argv[i + 1]]
-    target = args[0] if args else out_dir
-    if not args:
-        print(f"未指定目标，默认导入 {target}")
-
-    run_import(target)
 
 
 def status():
@@ -379,23 +445,23 @@ def status():
         return
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    n_prod = cur.execute("SELECT COUNT(*) FROM products WHERE category='CPU'").fetchone()[0]
-    n_quote = cur.execute("SELECT COUNT(*) FROM quotes WHERE source_image IS NOT NULL").fetchone()[0]
+    # MEM 数据以 hardware_type 非空为特征（CPU 管线写入 NULL）
+    n_quote = cur.execute(
+        "SELECT COUNT(*) FROM quotes WHERE hardware_type IS NOT NULL").fetchone()[0]
     n_dates = cur.execute("SELECT COUNT(*) FROM dates").fetchone()[0]
-    print(f"[CPU 导入状态] 库: {os.path.basename(DB_PATH)}")
-    print(f"  CPU 型号: {n_prod}")
-    print(f"  价格记录: {n_quote}")
+    print(f"[MEM 导入状态] 库: {os.path.basename(DB_PATH)}")
+    print(f"  MEM 价格记录（hardware_type 非空）: {n_quote}")
     print(f"  报价日期: {n_dates}")
-    # 按来源统计
+    # 按 hardware_type 分布
     rows = cur.execute("""
-        SELECT source_image, COUNT(*) FROM quotes
-        WHERE source_image IS NOT NULL
-        GROUP BY source_image ORDER BY source_image
+        SELECT hardware_type, COUNT(*) FROM quotes
+        WHERE hardware_type IS NOT NULL
+        GROUP BY hardware_type ORDER BY COUNT(*) DESC
     """).fetchall()
     if rows:
-        print("  按来源:")
-        for src, n in rows:
-            print(f"    {src}: {n} 条")
+        print("  hardware_type 分布:")
+        for hw, n in rows:
+            print(f"    {hw}: {n} 条")
     conn.close()
 
 

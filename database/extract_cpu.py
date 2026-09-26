@@ -754,6 +754,26 @@ def main():
     with open(PROGRESS_LOG, "a", encoding="utf-8") as f:
         f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 本次新提取={ok} 失败={fail} 总进度={total_done}/{len(images)}\n")
 
+    # --db：统一入库（管线结束时执行 load_cpu 的完整主流程，做法 B）
+    if "--db" in sys.argv:
+        print("\n[CPU 管线] 开始数据库导入（全量 extracted_cpu/，含全库去重）...")
+        try:
+            sys.path.insert(0, BASE_DIR)
+            from load_cpu import run_import   # 复用 load_cpu 现有逻辑，不重写
+            # 传入当前输出目录（--out-dir 自定义时对齐，默认时与 load_cpu 默认一致），
+            # 避免自定义输出时误导 database/output_cpu/ 的默认目录
+            result = run_import(OUT_DIR)      # 全量，幂等无害
+            print(f"[CPU 管线] 入库完成: 导入 {result['passed']} 条, "
+                  f"跳过 {result['skipped']} 条, "
+                  f"去重删除 {result['dup_same']} 条, "
+                  f"冲突 {result['conflicts']} 条")
+            if result['conflicts']:
+                print("  冲突明细见 load_cpu_report.md / load_cpu_conflicts.json，请人工核对原图")
+        except Exception as e:
+            print(f"[CPU 管线] 入库失败: {e}")
+            print("  （提取结果不受影响，JSON 已在盘上；可手动执行 python database/load_cpu.py 重试）")
+            sys.exit(1)   # 非零退出码提示有错，但数据安全
+
 
 def status():
     """查看默认目录（价格图片/CPU/）的提取进度。"""
@@ -776,9 +796,15 @@ def status():
                 pass
     done = all_done & png_keys
     stale = len(all_done) - len(done)
-    pending = [i for i in images
-               if os.path.splitext(i)[1].lower() == ".png"
-               and content_key(i) not in all_done]
+    pending = []
+    for i in images:
+        if os.path.splitext(i)[1].lower() != ".png":
+            continue
+        try:
+            if content_key(i) not in all_done:
+                pending.append(i)
+        except Exception:
+            pass   # 文件不可读：跳过，不让 --status 崩溃
     non_png = [os.path.basename(i) for i in images
                if os.path.splitext(i)[1].lower() != ".png"]
     print(f"[CPU 管线] 图片总数: {len(images)}")

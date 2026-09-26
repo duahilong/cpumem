@@ -24,7 +24,8 @@ CPU 提取与其他类目（mem / TF / 其他）**完全独立**，入口是 `da
   → S5 LLM 提取 call_llm()            # 裁剪图 + 提示词 → JSON
   → S6 后处理过滤 + 落盘               # 只保留 category=="CPU"，source_image = "{key}.png"
 extracted_cpu/{key}.json              # 输出：每张图一份 JSON（唯一检查点，全链路成功后才落盘）
-  → S7 数据导入 load_cpu.py           # 预验证 + 幂等入库 → cpumem.db（quotes.source_image = "{key}.png"）
+  → S7 数据导入（--db 或 load_cpu.py）# 预验证 + 幂等入库 → cpumem.db（quotes.source_image = "{key}.png"）
+                                       # --db：管线结束自动统一入库（做法 B，复用 load_cpu 主流程）
 ```
 
 设计要点：
@@ -52,9 +53,10 @@ extracted_cpu/{key}.json              # 输出：每张图一份 JSON（唯一�
 ┌─────────────────────────────────────────────────────────────────┐
 │ 步骤 S0：输入目标收集（collect_images()）                          │
 │  必须显式传入目标（图片文件或目录），无参数只打印用法不执行          │
-│  传入图片文件：校验扩展名（.png/.jpg/.jpeg）→ 单张提取             │
-│  传入目录：扫描其中图片文件（含子目录）→ 全部提取                  │
-│  路径不存在/非图片/目录无图片 → 报错退出                          │
+│  传入图片文件：非 PNG 直接报错拦截（管线仅支持 PNG，提前提示转换）   │
+│  传入目录：扫描其中 PNG 文件（含子目录）；非 PNG 文件跳过并提示      │
+│  数量与清单（不计入待提取）；目录无 PNG → 报错退出                 │
+│  路径不存在/非图片/目录无 PNG → 报错退出                          │
 └──────────────────────────┬──────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
@@ -134,6 +136,7 @@ extracted_cpu/{key}.json              # 输出：每张图一份 JSON（唯一�
 │  配置：llm_config.json（base_url / api_key / model / temperature） │
 │  消息：裁剪图（image_url base64）+ 提示词（多模态双内容）           │
 │  兼容处理：temperature 不被支持 → 去参数重试一次；                  │
+│            瞬时错误（超时/连接/限流）→ 原参数重试一次（_is_transient）│
 │            响应剥掉 ```json 代码围栏后 json.loads 解析             │
 │  超时默认 300 秒（timeout_seconds 可覆盖）                         │
 │  输出：dict（sheet_date + products[]）                             │
@@ -145,7 +148,8 @@ extracted_cpu/{key}.json              # 输出：每张图一份 JSON（唯一�
 │  ② 附溯源字段：source_image = "{key}.png"（哈希 + 固定 .png，       │
 │     内容寻址溯源；反查原名走 manifest）                            │
 │  ③ 写入 extracted_cpu/{key}.json（UTF-8，indent=2）                │
-│     —— 唯一检查点，只在全链路成功后原子落盘（下次 S1 自动跳过）      │
+│     —— 唯一检查点，原子落盘（临时文件 + os.replace，中断不会留下     │
+│     被断点续跑误认的截断 JSON）；下次 S1 自动跳过                    │
 │     中断/失败 → 无 JSON → 重跑自动重试（裁剪/OCR 缓存命中，只重调 LLM）│
 │  修改提示词/裁剪/OCR 逻辑后要重新提取 → 手动删对应 JSON             │
 └──────────────────────────┬──────────────────────────────────────┘
@@ -154,8 +158,10 @@ extracted_cpu/{key}.json              # 输出：每张图一份 JSON（唯一�
 │ 批量调度（main()）与日志                                           │
 │ 默认 2 线程并发（--workers 可调，上限 6），每张图独立走 S1~S6，线程安全落盘│
 │  优雅停止：第一次 Ctrl+C → 不再提交新图，等在跑的图完成（正常写盘、  │
-│  打印统计后退出）；第二次 Ctrl+C → 强制退出（未完成图下次重跑重试）  │
-│  统计 新提取/跳过/失败，打印失败清单（前 10 个）                    │
+│  打印统计后退出）；第二次 Ctrl+C → 强制退出（os._exit，进度日志未写， │
+│  未完成图下次重跑重试）                                            │
+│  统计 新提取/跳过/失败，打印失败清单（前 10 个，manifest 反查原名）  │
+│  0 条结果清单：LLM 返回空 products 的图单独列出，提醒人工核图        │
 │  向 extract_cpu_progress.log 追加一行进度记录（总进度按哈希键统计）  │
 │  重跑自动重试失败项（S1 不拦截无结果文件的图）                      │
 └──────────────────────────────────────────────────────────────────┘
@@ -174,9 +180,9 @@ extracted_cpu/{key}.json              # 输出：每张图一份 JSON（唯一�
   ```bash
   python database/extract_cpu.py <图片文件或目录> [--workers N] [--status]
   ```
-- 传入**图片文件**：校验扩展名（.png/.jpg/.jpeg），提取该张；
-- 传入**目录**：`os.walk` 扫描其中的图片文件（含子目录），提取全部；目录无图片、路径不存在、非图片文件均报错退出；
-- `--status`：查看默认目录（`价格图片/CPU/`，由脚本位置推导）的进度，不消耗配额；按哈希键统计，待提取清单显示 manifest 原名，非 PNG 文件单独标注；
+- 传入**图片文件**：非 PNG 直接报错拦截（管线仅支持 PNG，提前提示转换）；
+- 传入**目录**：`os.walk` 扫描其中的 PNG 文件（含子目录）；非 PNG 文件跳过并提示数量与清单（不计入待提取）；目录无 PNG、路径不存在均报错退出；
+- `--status`：查看默认目录（`价格图片/CPU/`，由脚本位置推导）的进度，不消耗配额；按哈希键统计，待提取清单显示 manifest 原名，非 PNG 文件单独标注；**已提取只统计与当前图片哈希匹配的结果，陈旧结果（哈希不在当前图片中）单独计数，避免偏大**；
 - **入口 PNG 验证**：非 `.png` 格式的图该图计失败并提示，不进管线（管线内格式固定 PNG），管线继续跑其他图；
 - **内容哈希键（`content_key()` + `register_key()`）**：进管线时对源图算一次 MD5（分块读取，大文件不占内存），作为全链路唯一键；同时在 `manifest.json` 登记 `键 → 原名`（同键异名进 aliases 别名列表）。哈希只算这一次，之后所有模块引用同一个值（不重复计算）；
 - 断点续跑：`extracted_cpu/{key}.json` 存在即跳过（同内容异名重发 → 相同哈希 → 自动跳过，免费去重）；失败不产生结果文件，重跑自动重试。
@@ -197,6 +203,9 @@ extracted_cpu/{key}.json              # 输出：每张图一份 JSON（唯一�
 - **manifest**：`output_cpu/manifest.json`，键为哈希、值为原名（同名重复登记
   去重；异名升级为 `{name, aliases[]}`）。反向溯源查它；随 DB 备份；丢失可用
   源图重算哈希重建（正向永不依赖 manifest）。
+  **并发安全**：manifest 读改写由 `_MANIFEST_LOCK` 互斥（多 worker 并发保护），
+  写入经 `_write_manifest()` 原子替换（临时文件 + os.replace，中断不会留下截断
+  JSON）；manifest 损坏时告警并按空映射继续，下次登记会重建。
 
 **存量迁移说明**：现有 316 张 CPU 图的文件名**本来就是内容 MD5**（100% 命中验证），
 新旧键数值完全等价——存量产物（JSON/OCR 缓存/裁剪缓存）无需任何迁移，直接兼容。
@@ -343,9 +352,9 @@ OCR 输出特性（0a04 基准实测，整图 OCR 时期的结论，分块后数
 
 - 通过 `openai` SDK 调用 `llm_config.json` 配置的 OpenAI 兼容接口（当前 glm-5.3-flash）；
 - 消息形态：完整裁剪图（`image_url` base64，含横幅日期，提供 `sheet_date` 与消歧裁决）+ 提示词（指令 + 合并后的 LL/LR OCR 数据，多模态双内容）；
-- `temperature` 兼容降级重试、Markdown 代码围栏剥离、超时默认 300 秒；
+- `temperature` 兼容降级重试、瞬时错误重试（`_is_transient()`：超时/连接/限流类错误原参数重试一次）、Markdown 代码围栏剥离、超时默认 300 秒；
 - 后处理：只保留 `category=="CPU"`（双保险过滤）+ 附 `source_image = "{key}.png"` 溯源字段（哈希 + 固定 .png，反查原名走 manifest）；
-- 落盘 `extracted_cpu/{key}.json`，即唯一断点续跑检查点（全链路成功后原子落盘）。
+- 落盘 `extracted_cpu/{key}.json`，即唯一断点续跑检查点（**原子落盘**：临时文件 + os.replace，中断不会留下被断点续跑误认的截断 JSON）。
 
 ### 3.6 与其他类目的隔离
 
@@ -364,7 +373,16 @@ OCR 输出特性（0a04 基准实测，整图 OCR 时期的结论，分块后数
 
 ## 4. 数据导入（`load_cpu.py`，管线最后一步）
 
-提取结果落盘（S6）后，由 `load_cpu.py` 完成预验证和入库（人工触发，独立于提取流程）：
+入库有两种触发方式（同一套主流程 `run_import()`，复用不重写）：
+
+1. **管线自动（`--db` 开关，做法 B）**：`python database/extract_cpu.py 价格图片/CPU --db` ——
+   全部图提取结束后（含优雅停止），自动对**全量 `extracted_cpu/`** 执行入库（单线程，无并发写库）。
+   默认关闭：不加 `--db` 只提取不动库（试跑/测试安全，开关即显式授权）；
+   入库失败只打印错误 + 非零退出码（提取结果不受影响，JSON 已在盘上，幂等重试恢复）；
+2. **人工触发（`load_cpu.py`，兜底/修复/补导）**：独立入口保留，主流程与 `--db` 完全一致。
+
+幂等保证：每次入库都是全量扫描 + 删同 `source_image` 旧记录再插新（source_image 为哈希），
+重跑任意次结果一致——中断后补跑 `load_cpu.py` 即恢复一致。
 
 ```bash
 python database/load_cpu.py                              # 默认导入 output_cpu/extracted_cpu/
@@ -451,6 +469,7 @@ python database/load_cpu.py --status                     # 查看库内 CPU 数�
 9. **失败处理原则**：失败图计入清单、重跑重试，绝不伪造成功，也不因 LLM 提取不确定而补造价格——宁可漏掉不确定行，也不跨行/跨列/跨产品推断；
 10. **图片字节不能变**：哈希对文件字节敏感——图片拿到手后**原样放目录**，不要重新保存/转码/用工具"优化"（画面相同但字节不同 → 新哈希 → 当作新图重新提取）；
 11. **manifest 是关键资产**：`output_cpu/manifest.json` 承担唯一的"哈希 → 原名"反查，随 DB 一起备份；丢失可用源图重算哈希重建（manifest 登记正向、别名列表会重新积累）；
+12. **0 条结果是可疑信号**：LLM 返回空 products 的图会正常落盘 JSON（检查点有效），但批量结束时会单独列出"0 条结果清单"提醒人工核图（可能是 OCR 误识/串区/白名单外被过滤）；
 
 **超时配置**（`llm_config.json`，防止脚本卡住）：
 - `timeout_seconds: 300` —— LLM 调用超时；
@@ -460,7 +479,9 @@ python database/load_cpu.py --status                     # 查看库内 CPU 数�
 
 **并发**：默认 2（`MAX_WORKERS = 2`），`--workers N` 可调，上限 6（`MAX_WORKERS_LIMIT`）——OCR/LLM 服务承压限制，超限自动钳到 6。
 
-**优雅停止**：第一次 Ctrl+C → 置位停止标志，不再提交新图，等在跑的图完成（每图约 40~60s）后正常写盘、打印统计、记录进度日志后退出；第二次 Ctrl+C → 强制退出（未完成图下次重跑自动重试）。
+**优雅停止**：第一次 Ctrl+C → 置位停止标志，不再提交新图，等在跑的图完成（每图约 40~60s）后正常写盘、打印统计、记录进度日志后退出；第二次 Ctrl+C → 强制退出（`os._exit(1)`，绕过线程池等待，进度日志未写入，未完成图下次重跑自动重试）。
+
+**陈旧结果**：`status()` 已提取只统计与当前图片哈希匹配的结果；哈希不在当前图片中的旧结果 JSON 单独计数（不占用断点，也不计入已提取），可用 manifest 反查其原名后决定处置。
 
 ---
 
@@ -486,6 +507,9 @@ cpumem.db: quotes.source_image = "{哈希键}.png"
 一根键贯穿到底：源图算出哈希后，裁剪、分块、OCR、JSON、DB 全部用同一个键，
 任何一环看到它都能对应到同一张源图。反向溯源（从产物/DB 找原文件）查 manifest；
 自校验：对原文件重算 MD5 应等于键。
+
+所有关键落盘均为原子写：manifest 与结果 JSON 都经"临时文件 + os.replace"，
+中断不会留下截断文件（JSON 不会出现"存在但内容不完整"的状态）。
 
 ```text
 【正向：从源到产物，一根键贯穿】
@@ -518,7 +542,10 @@ python database/extract_cpu.py ../价格图片/CPU/0a04d486d137d2d382483b63a0f84
 # 指定并发（上限 6）
 python database/extract_cpu.py ../价格图片/CPU --workers 4
 
-# 数据导入（管线最后一步：预验证 + 幂等入库 cpumem.db）
+# 提取 + 入库一条命令（--db：管线结束时自动统一入库，含全库去重；需授权）
+python database/extract_cpu.py ../价格图片/CPU --db
+
+# 数据导入（管线最后一步：预验证 + 幂等入库 cpumem.db；兜底/补导）
 python database/load_cpu.py                              # 默认导入 output_cpu/extracted_cpu/
 python database/load_cpu.py output_cpu/extracted_cpu/0a04….json   # 导入指定单份
 python database/load_cpu.py --status                     # 查看库内 CPU 数据统计

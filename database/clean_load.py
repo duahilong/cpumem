@@ -178,7 +178,8 @@ def _create_tables(conn):
         date_key      TEXT NOT NULL REFERENCES dates(date_key),
         price         REAL NOT NULL,
         price_type    TEXT DEFAULT '默认',
-        source_image  TEXT
+        source_image  TEXT,
+        hardware_type TEXT                  -- 硬件类别缩写（MEM 管线写入：DDR3/DDR4/DDR5/SSD/...；CPU 管线为 NULL）
     );
     CREATE INDEX IF NOT EXISTS idx_q_prod_date ON quotes(product_key, date_key);
     CREATE INDEX IF NOT EXISTS idx_p_cat_vendor ON products(category, vendor);

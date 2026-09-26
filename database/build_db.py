@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS quotes (
     date_key      TEXT NOT NULL REFERENCES dates(date_key),
     price         REAL NOT NULL,       -- 数值价格
     price_type    TEXT DEFAULT '默认',  -- 散片/原盒/单条/套装/默认
-    source_image  TEXT                 -- 来源图片（溯源）
+    source_image  TEXT,                 -- 来源图片（溯源）
+    hardware_type TEXT                  -- 硬件类别缩写（MEM 管线写入：DDR3/DDR4/DDR5/SSD/...；CPU 管线为 NULL）
 );
 
 CREATE INDEX IF NOT EXISTS idx_q_prod_date  ON quotes(product_key, date_key);
