@@ -5,17 +5,19 @@ MEM 专用提取管线 —— 与其他类目完全独立（结构对齐 extract
 流程：
     1. 显式传入 PNG 图片或目录（断点续跑：已有结果 JSON 则跳过）
     2. 内容寻址：key = MD5(源图字节)，register_key() 登记 manifest（原子写+锁）
-    3. 裁剪预处理 crop_mem_image()：裁剪图缓存 crop_cache/{key}.png
-       【首版为直通拷贝占位；细节锚点/参数待测试校准，见函数 docstring】
-    4. OCR 通道 ocr_markdown()：读裁剪图 → llama.cpp GLM-OCR → Markdown 表格
-       （temperature=0 确定性输出；max_tokens 可配置 ocr_max_tokens；缓存 ocr_cache/{key}.md）
-    5. 组装提示词：prompts/OCR主_指令_MEM.txt + OCR Markdown
-       （OCR 为主、原图为辅；指令自带完整 JSON 契约，无 CPU 白名单）
-    6. 调用多模态 LLM（配置 llm_config.json），输出 JSON 存档 extracted_mem/
+    3. 裁剪预处理 crop_mem_image()：标题横幅（sheet_date 来源）+ 表格主体两段拼接，
+       总代标头区裁掉，缓存 crop_cache/{key}.png
+    4. OCR 通道 ocr_markdown()：裁剪图竖向 4 块切分（仅表格主体，无横幅）→
+       每块 llama.cpp GLM-OCR → Markdown
+       （temperature=0 确定性输出；max_tokens 可配置 ocr_max_tokens；缓存 ocr_cache/{key}_B0~B3.md）
+    5. 组装提示词：prompts/OCR主_指令_MEM.txt + 分块 OCR Markdown
+       （OCR 为主、图为辅；指令自带完整 JSON 契约，无 CPU 白名单）
+    6. 调用多模态 LLM（配置 llm_config.json），随消息传裁剪图
+       （含标题横幅，sheet_date 从横幅读取），输出 JSON 存档 extracted_mem/
        OCR 失败/返回空 → 抛 RuntimeError，该图计失败（不降级，重跑自动重试）
 
-与 CPU 管线的三处关键差异：
-    - 裁剪预处理首版为直通拷贝占位（细节待测试校准）
+与 CPU 管线的关键差异：
+    - LLM 收两段裁剪图（横幅+主体，总代区裁掉）；CPU 收三段裁剪图
     - 无 CPU 白名单
     - 全类目保留：不按 category 过滤，为每条记录补齐 hardware_type
 
@@ -148,17 +150,20 @@ def register_key(img_path: str) -> str:
 # ============ 裁剪预处理 + 表级竖向分块（对齐 CPU 管线模式） ============
 
 def crop_mem_image(img_path: str, key: str) -> str:
-    """裁剪预处理：为 OCR 和 LLM 提供预处理后的图。
+    """裁剪预处理：为 LLM 和 OCR 分块提供预处理后的图。
 
-    MEM 版实现（三段裁剪，对齐 CPU 管线 crop_cpu_image 模式）：
-      段1 标题行（报价单 XX月XX日，全宽保留，日期来源）
+    MEM 版实现（两段拼接，对齐 CPU 管线 crop_cpu_image 模式）：
+      段1 标题横幅（报价单 XX月XX日，全宽保留，sheet_date 来源）
       段3 表格主体（从区块表头行开始，含全部产品区块）
       —— 中间的"总代标头行"（两行：微星主板显示器机电总代 / 影驰全系列总代 /
       金邦存储总代 / 金士顿存储总代 等重复标头）裁剪掉（OCR 干扰源：分块后这些跨列文字
       会产生残字与乱码行）
 
+    分块（split_mem_blocks）只切表格主体、不含标题横幅——日期信息仅保留在本裁剪图，
+    由 LLM 从横幅读取 sheet_date。
+
     锚点检测（实测 4 种版式一致）：
-      - 标题行底线：横幅区后的第一根全宽深色表格线（x/w≈0.027）
+      - 标题横幅底线：y 2%~15% 内的第一根全宽深色表格线（x/w≈0.027）
       - 总代区底线：其后的第三根全宽深色表格线（含两行总代，区块表头上边界，x/w≈0.068）
       检测失败回退固定比例（标题底 0.027 / 总代底 0.068）。
 
@@ -188,11 +193,11 @@ def crop_mem_image(img_path: str, key: str) -> str:
                 groups.append([y])
         return [g[0] for g in groups]
 
-    # 标题行底线：y 2%~15% 内的前三根全宽表格线
+    # 标题横幅底线 + 总代区底线：y 2%~15% 内的前 3 根全宽表格线
     # （实测结构：标题底 → 总代行1底 → 总代行2底=区块表头上边界）
     title_lines = full_width_lines(0.02, 0.15)
     if len(title_lines) >= 3:
-        title_end = title_lines[0]        # 标题行底线（横幅底）
+        title_end = title_lines[0]        # 标题横幅底线
         banner_end = title_lines[2]       # 总代区底线（含两行总代，区块表头上边界）
     elif len(title_lines) == 2:
         # 只有两根线：可能只有一行总代
@@ -202,8 +207,9 @@ def crop_mem_image(img_path: str, key: str) -> str:
         # 检测失败回退固定比例（实测均值：标题底 0.027 / 总代区底 0.068）
         title_end = int(h * 0.027)
         banner_end = int(h * 0.068)
+        print(f"警告: 横幅锚点检测失败（{key[:16]}），回退固定比例 0.027/0.068", file=sys.stderr)
 
-    # 三段拼接：标题行 + 表格主体（跳过总代标头区）
+    # 两段拼接：标题横幅（sheet_date 来源）+ 表格主体（跳过总代标头区）
     s1 = img.crop((0, 0, w, title_end))
     s3 = img.crop((0, banner_end, w, h))
     canvas = Image.new("RGB", (w, s1.height + s3.height), "white")
@@ -254,6 +260,10 @@ def _find_4splits(vlines, width):
 def split_mem_blocks(crop_path: str, key: str) -> dict:
     """表级竖向 4 块切分（对齐 CPU 管线 split_table_blocks 模式，方案定稿）。
 
+    输入为 crop_mem_image() 的裁剪图（标题横幅 + 表格主体，无总代标头）。
+    分块只切表格主体区域、不拼回标题横幅——分块图无日期信息，
+    sheet_date 由 LLM 从裁剪图顶部横幅读取。
+
     分界竖线逐图自适应检测（detect_vlines + 先验范围选择）：
       mem 报价单为 4 个产品区块并排（每个区块 = 型号列 + 价格列），
       3 条分界竖线把主体切成 4 块，每块含完整的"型号+价格"对。
@@ -261,7 +271,6 @@ def split_mem_blocks(crop_path: str, key: str) -> dict:
     竖线位置是模板属性（x/w 相对比例），与图片分辨率/宽高比无关；
     检测失败回退均分比例。
 
-    每块顶部拼回标题行（报价日期，来自已裁剪的 crop 图），供 sheet_date 提取。
     结果平铺缓存到 crop_cache/（{key}_B0.png ~ {key}_B3.png），
     已存在直接复用。返回 {'B0': 路径, 'B1': 路径, 'B2': 路径, 'B3': 路径}。"""
     paths = {f"B{i}": os.path.join(CROP_DIR, f"{key}_B{i}.png") for i in range(4)}
@@ -274,7 +283,7 @@ def split_mem_blocks(crop_path: str, key: str) -> dict:
     w, h = img.size
     arr = np.array(img.convert("L"))
 
-    # 标题行底线（crop 图内第一根全宽表格线，即标题区结束）
+    # 标题横幅底线（扫描从 1% 起跳过 y=0 的横幅顶边框线，回退 0.027）
     def full_width_lines(y_from, y_to):
         lines = []
         for y in range(int(h * y_from), int(h * y_to)):
@@ -288,23 +297,17 @@ def split_mem_blocks(crop_path: str, key: str) -> dict:
                 groups.append([y])
         return [g[0] for g in groups]
 
-    tl = full_width_lines(0.0, 0.10)
+    tl = full_width_lines(0.01, 0.10)
     title_end = tl[0] if tl else int(h * 0.027)
 
-    # 主体区域检测 3 条分界竖线（在表格主体带内）
-    body_arr = arr[title_end:, :]
-    vlines = detect_vlines(body_arr)
+    # 表格主体区域检测 3 条分界竖线
+    vlines = detect_vlines(arr[title_end:, :])
     s1, s2, s3 = _find_4splits(vlines, w)
 
-    # 4 块裁剪：每块顶部拼回标题行（保日期），主体按分界竖线切割
-    title = img.crop((0, 0, w, title_end))
+    # 4 块裁剪：主体按分界竖线切割（不拼回横幅，分块无日期信息）
     bounds = [0, s1, s2, s3, w]
     for i in range(4):
-        body = img.crop((bounds[i], title_end, bounds[i + 1], h))
-        canvas = Image.new("RGB", (body.width, title.height + body.height), "white")
-        canvas.paste(title, (0, 0))
-        canvas.paste(body, (0, title.height))
-        canvas.save(paths[f"B{i}"])
+        img.crop((bounds[i], title_end, bounds[i + 1], h)).save(paths[f"B{i}"])
     return paths
 
 
@@ -385,11 +388,11 @@ def html_table_to_markdown(html: str) -> str:
 def ocr_markdown(crop_path: str, key: str) -> str:
     """对 4 个分块图分别调用 GLM-OCR，合并为带块标注的联合 Markdown。
 
-    分块图来自 split_mem_blocks()（裁剪图的表级竖向 4 等分，逐图自适应
+    分块图来自 split_mem_blocks()（仅主体裁剪图的表级竖向 4 等分，逐图自适应
     检测分界竖线）：B0~B3 每块含完整的"型号+价格"对，块更窄、文字有效
     分辨率更高，OCR 误识/粘连更少；缓存键为 {key}_B0.md ~ {key}_B3.md。
-    报价日期在分块图顶部横幅内（每块拼回横幅），sheet_date 按提示词契约
-    从横幅提取（call_llm 随消息附带完整裁剪图）。
+    分块图不含标题横幅（已裁剪），sheet_date 由 LLM 从裁剪图顶部横幅读取
+    （call_llm 随消息附带裁剪图）。
     合并格式与提示词【OCR 表格结构说明】的 4 块布局约定一致。
     OCR 失败/返回空时抛出 RuntimeError（提示词以 OCR 为主，无 OCR 无法提取）。"""
     blocks = split_mem_blocks(crop_path, key)
@@ -469,7 +472,8 @@ def _is_transient(e: Exception) -> bool:
 
 
 def call_llm(crop_path: str, prompt: str) -> dict:
-    """调用多模态 LLM，返回解析后的 JSON。随消息传裁剪图。
+    """调用多模态 LLM，返回解析后的 JSON。随消息传裁剪图
+    （含标题横幅，sheet_date 从横幅读取；OCR 可疑细节也用裁剪图视觉裁决）。
     超时/连接类瞬时错误重试一次；temperature 不被支持时去参数重试。"""
     from openai import OpenAI
 
@@ -566,7 +570,7 @@ def extract_one(img_path: str) -> tuple[str, bool, str]:
       - key 全链路贯穿：裁剪/OCR 缓存/最终 JSON/DB source_image
       - 唯一检查点 = extracted_mem/{key}.json（只在全链路成功后原子落盘）
       - 同内容异名重发 → 相同哈希 → 自动跳过（免费去重）
-    提示词以 OCR 输出为主（prompts/OCR主_指令_MEM.txt + OCR Markdown + 裁剪图）,
+    提示词以 OCR 输出为主（prompts/OCR主_指令_MEM.txt + 分块 OCR Markdown + 裁剪图）,
     OCR 失败/返回空时抛出 RuntimeError，该图计为失败（不降级纯视觉）。"""
     # 入口验证：管线内格式固定 PNG
     if os.path.splitext(img_path)[1].lower() != ".png":
@@ -585,7 +589,7 @@ def extract_one(img_path: str) -> tuple[str, bool, str]:
         crop_path = crop_mem_image(img_path, key)
         ocr_md = ocr_markdown(crop_path, key)
         full_prompt = build_joint_prompt(ocr_md)
-        data = call_llm(crop_path, full_prompt)
+        data = call_llm(crop_path, full_prompt)   # LLM 收裁剪图（含标题横幅，sheet_date 来源）
         # source_image 固定为 哈希 + .png（内容寻址溯源，反查原名走 manifest）
         data["source_image"] = key + ".png"
         # 保留全类目（mem 报价单常同时含内存/固态/主板/显卡等，不剔除非内存产品），
